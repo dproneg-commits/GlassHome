@@ -1,0 +1,5 @@
+# Zugangsdaten und Testausgaben nie einchecken
+*.token
+.env
+test/ha/
+node_modules/
