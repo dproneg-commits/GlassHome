@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.7.0';
+const GH_VERSION = '0.7.1';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1851,12 +1851,13 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const start = [nav, header];
     if (hasStatus) start.push(status);
     const startSections = [section(start)];
-    if (roomCards.length) startSections.push(section(roomCards));
     const extra = [];
     if (energyOnStart) extra.push(energy);
     if (mods.waste) extra.push(waste);
     if (mods.todo || mods.calendar) extra.push(agenda);
-    if (extra.length) startSections.push(section(extra));
+    // Müll und Einkauf füllen freie Plätze neben den Räumen, statt eine eigene Reihe zu öffnen
+    if (roomCards.length) startSections.push(section([...roomCards, ...extra]));
+    else if (extra.length) startSections.push(section(extra));
 
     const view = (title, path, icon, sections) => ({ title, path, icon, type: 'sections', max_columns: 4, sections });
     const views = [view('Start', 'start', 'mdi:home', startSections)];
