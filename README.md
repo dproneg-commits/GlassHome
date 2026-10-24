@@ -1,6 +1,8 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.6.2: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.7.0: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Einkauf & Termine, Szenen, Raumkarte.
+
+Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
 ## Installation über HACS / Marketplace
 
@@ -96,6 +98,22 @@ max: 5
 - Braucht die HACS-Integration „Waste Collection Schedule“ mit einem Sensor pro Müllart (Attribut `daysTo`).
 - Farben nach Name: Bio braun, Rest grau, Gelber Sack gelb, Papier rot, Glas grün.
 - Die Kopfzeile zeigt zusätzlich „Morgen Biomüll“ bzw. „Heute …“.
+
+## Einkauf & Termine
+
+```yaml
+type: custom:glass-home-agenda
+title: Einkaufsliste    # optional, sonst Name der Liste
+todo: todo.shopping_list  # optional, sonst Einkaufsliste bzw. erste Liste; false = ausblenden
+calendars: []           # optional, sonst alle Kalender; false = ausblenden
+days: 7                 # Termine für so viele Tage
+max_items: 6
+max_events: 5
+```
+
+- Nutzt nur eingebaute HA-Funktionen (Einkaufsliste/To-do-Listen und Kalender), kein HACS nötig.
+- Einträge abhaken mit dem Kreis, neue Einträge über das Feld darunter. Tippen auf einen Termin öffnet den Kalender.
+- Die Strategie setzt die Karte auf die Startseite, sobald es eine Liste oder einen Kalender gibt (`modules: {todo: false, calendar: false}` schaltet sie ab).
 
 ## Szenen
 

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Einkauf & Termine</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;padding:12px;box-sizing:border-box;background:linear-gradient(160deg,#141619,#22262b) fixed}
+#ag{max-width:420px}
+</style></head><body>
+<div id="ag"></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Einkaufsliste mit 8 offenen Einträgen und zwei Kalender
+const S = {}, E = {};
+const add = (id, state, attrs) => { S[id] = { entity_id: id, state, attributes: attrs, last_updated: new Date().toISOString() }; E[id] = { entity_id: id, labels: [] }; };
+add('todo.shopping_list', '8', { friendly_name: 'Einkaufsliste' });
+add('todo.aufgaben', '2', { friendly_name: 'Aufgaben' });
+add('calendar.familie', 'off', { friendly_name: 'Familie' });
+add('calendar.feiertage', 'off', { friendly_name: 'Feiertage' });
+let items = ['Milch', 'Brot', 'Äpfel', 'Kaffee', 'Butter', 'Eier', 'Nudeln', 'Tomaten'].map((summary, i) => ({ uid: 'u' + i, summary, status: 'needs_action' }));
+items.push({ uid: 'done', summary: 'Zucker', status: 'completed' });
+const at = (d, h, m = 0) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(h, m, 0, 0); return x; };
+const day = (d) => at(d, 0).toISOString().slice(0, 10);
+const hass = {
+  states: S, entities: E, devices: {}, areas: {}, user: { name: 'Familie Huber' }, calls: [],
+  callService(d, s, data, target) { this.calls.push([d, s, data, target]); },
+  async callWS(msg) {
+    if (msg.type === 'todo/item/list') return { items: msg.entity_id === 'todo.shopping_list' ? items : [] };
+    throw new Error('unbekannt ' + msg.type);
+  },
+  async callApi(method, path) {
+    if (path.startsWith('calendars/calendar.familie')) return [
+      { summary: 'Zahnarzt Lena', start: { dateTime: at(0, 16, 30).toISOString() }, end: { dateTime: at(0, 17).toISOString() } },
+      { summary: 'Elternabend', start: { dateTime: at(2, 19).toISOString() }, end: { dateTime: at(2, 21).toISOString() } },
+      { summary: 'Oma Geburtstag', start: { date: day(1) }, end: { date: day(2) } },
+    ];
+    if (path.startsWith('calendars/calendar.feiertage')) return [{ summary: 'Nationalfeiertag', start: { date: day(3) }, end: { date: day(4) } }];
+    return [];
+  },
+};
+const c = document.createElement('glass-home-agenda'); c.setConfig({}); document.getElementById('ag').appendChild(c); c.hass = hass;
+window.__ag = c; window.__hass = hass;
+</script></body></html>
