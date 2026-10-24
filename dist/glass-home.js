@@ -262,6 +262,7 @@ class GlassHomeRoomCard extends HTMLElement {
     this._hass = hass;
     if (!this._config) return;
     // Nur neu zeichnen, wenn sich etwas im Raum geändert hat (spart Arbeit am Tablet)
+    if (this._popup) this._popup.hass = hass;
     const ents = areaEntities(hass, this._config.area);
     const all = Object.values(ents).flat();
     const sig = all.map((id) => {
@@ -354,11 +355,15 @@ class GlassHomeRoomCard extends HTMLElement {
   _isAwning(ids) { return isAwning(this._hass, ids); }
 
   _moreInfo() {
-    // Vorläufig: Detailansicht des ersten Geräts. Später eigenes Raum-Popup.
-    const e = this._ents || {};
-    const id = [...(e.lights || []), ...(e.covers || []), ...(e.climates || []), ...(e.temps || [])][0];
-    if (!id) return;
-    this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: id }, bubbles: true, composed: true }));
+    // Übersicht aller Geräte dieses Raums, nach Art gruppiert
+    document.querySelector('glass-home-popup')?.close();
+    const pop = document.createElement('glass-home-popup');
+    pop.kind = 'room';
+    pop.area = this._config.area;
+    document.body.appendChild(pop);
+    pop.hass = this._hass;
+    this._popup = pop;
+    pop.onclose = () => { if (this._popup === pop) this._popup = null; };
   }
 }
 
@@ -1132,7 +1137,7 @@ const POPUP_STYLE = `
   .acts{display:flex;gap:8px;padding:0 18px 10px;flex-wrap:wrap}
   .acts button{height:38px;padding:0 16px;border-radius:12px;border:0;background:rgba(255,255,255,.08);color:var(--gh-txt);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
   .acts button:active,.x:active{transform:scale(.96)}
-  .body{overflow:auto;padding:4px 18px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;align-items:start}
+  .body{overflow:auto;padding:4px 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;align-items:start}
   .grp{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
   .grp h3{margin:0 0 2px;font-size:13px;font-weight:600;color:var(--gh-mute);letter-spacing:.02em}
   .ln{display:flex;align-items:center;gap:10px;min-height:36px;font-size:14px}
@@ -1158,7 +1163,7 @@ class GlassHomePopup extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (this._dragging) return;
-    const g = collect(hass, this.kind);
+    const g = this.kind === 'room' ? this._roomGroups(hass) : collect(hass, this.kind);
     const sig = g.flatMap((x) => x.ids).map((id) => {
       const s = hass.states[id];
       return `${id}|${s?.state}|${s?.attributes.brightness}|${s?.attributes.current_position}|${s?.attributes.current_temperature}`;
@@ -1181,9 +1186,16 @@ class GlassHomePopup extends HTMLElement {
     this.onclose?.();
   }
 
+  // Raum-Popup: je Art eine Gruppe mit den Geräten dieses Bereichs
+  _roomGroups(hass) {
+    const room = hass.areas?.[this.area]?.name || this.area;
+    return ALL_KINDS.map((k) => ({ k, ids: collect(hass, k).find((g) => g.area === this.area)?.ids || [] }))
+      .filter((g) => g.ids.length).map((g) => ({ area: g.k, name: KIND_TITLE[g.k], ids: g.ids, kind: g.k, room }));
+  }
+
   // Eine Zeile pro Gerät. Wird bei Änderungen einzeln ersetzt, damit nichts flackert.
-  _row(id, area) {
-    const h = this._hass, k = this.kind, st = h.states[id];
+  _row(id, area, k = this.kind) {
+    const h = this._hass, st = h.states[id];
     if (!st) return '';
     let n = h.entities?.[id]?.name || st.attributes.friendly_name || id;
     // Bereichsnamen vorne weglassen, steht schon in der Überschrift
@@ -1230,7 +1242,7 @@ class GlassHomePopup extends HTMLElement {
 
   _render(groups) {
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-    const h = this._hass, k = this.kind, s = summarize(h, k);
+    const h = this._hass, k = this.kind, s = k === 'room' ? null : summarize(h, k);
     this._all = groups.flatMap((x) => x.ids);
 
     // Rahmen nur einmal aufbauen, sonst startet die Einblend-Animation bei jedem Update neu
@@ -1241,7 +1253,7 @@ class GlassHomePopup extends HTMLElement {
       this.shadowRoot.innerHTML = `<style>${GH_STYLE}${ROOM_STYLE}${POPUP_STYLE}</style>
         <div class="bg"></div>
         <div class="sheet p">
-          <div class="top"><div><h2>${KIND_TITLE[k]}</h2><small class="sum"></small></div><button class="x" aria-label="Schließen">✕</button></div>
+          <div class="top"><div><h2>${esc(k === 'room' ? h.areas?.[this.area]?.name || this.area : KIND_TITLE[k])}</h2><small class="sum"></small></div><button class="x" aria-label="Schließen">✕</button></div>
           ${acts ? `<div class="acts">${acts}</div>` : ''}
           <div class="body"></div>
         </div>`;
@@ -1269,10 +1281,11 @@ class GlassHomePopup extends HTMLElement {
       this._rows = {};
       bodyEl.innerHTML = groups.map((g) => {
         let ids = g.ids;
-        if (k === 'openings') ids = [...ids].sort((a, b) => isOpen(h, b) - isOpen(h, a));
+        const gk = g.kind || k, trim = g.room || g.name;
+        if (gk === 'openings') ids = [...ids].sort((a, b) => isOpen(h, b) - isOpen(h, a));
         return `<div class="grp"><h3>${esc(g.name)}</h3>${ids.map((id) => {
-          this._rows[id] = this._row(id, g.name);
-          return `<div class="cell" data-row="${id}" data-area="${esc(g.name)}">${this._rows[id]}</div>`;
+          this._rows[id] = this._row(id, trim, gk);
+          return `<div class="cell" data-row="${id}" data-area="${esc(trim)}" data-kind="${gk}">${this._rows[id]}</div>`;
         }).join('')}</div>`;
       }).join('') || '<span style="color:var(--gh-dim)">Keine Geräte gefunden</span>';
       bodyEl.querySelectorAll('.cell').forEach((c) => this._bindRow(c));
@@ -1280,7 +1293,7 @@ class GlassHomePopup extends HTMLElement {
     }
     // Nur geänderte Zeilen ersetzen
     bodyEl.querySelectorAll('.cell').forEach((c) => {
-      const html = this._row(c.dataset.row, c.dataset.area);
+      const html = this._row(c.dataset.row, c.dataset.area, c.dataset.kind);
       if (html === this._rows[c.dataset.row]) return;
       this._rows[c.dataset.row] = html;
       c.innerHTML = html;
