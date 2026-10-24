@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.6.2';
+const GH_VERSION = '0.7.0';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -53,6 +53,7 @@ const ICONS = {
   cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h9.6a1 1 0 0 0 1-.8L21 7H6"/>',
   plug: '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/>',
   check: '<path d="M4 12.5 9.5 18 20 6.5"/>',
+  cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15"/><path d="M5 21c2-5 5-8 9-10"/>',
 };
 const icon = (n, s = 18) =>
@@ -1335,6 +1336,8 @@ const ENERGY_STYLE = `
   .msg{padding:14px 16px;font-size:13px;color:var(--gh-mute);line-height:1.45}
   @container (max-width:620px){
     .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    /* eine übrige Kachel nutzt die ganze Reihe */
+    .tile:last-child:nth-child(odd){grid-column:1/-1}
     .tile{padding:10px 12px}.tile b{font-size:16px}
     .plot{height:170px}
   }
@@ -1625,6 +1628,173 @@ class GlassHomeWasteEditor extends GlassHomeFormEditor {
 }
 
 /* ------------------------------------------------------------------ */
+/* Einkauf & Termine: offene Einträge einer HA-Liste und nächste       */
+/* Kalendertermine. Beides ist eingebaut, braucht kein HACS.           */
+/* ------------------------------------------------------------------ */
+// Einkaufsliste bevorzugen, sonst die erste Liste
+function defaultTodo(h) {
+  const ids = Object.keys(h.states).filter((id) => id.startsWith('todo.') && visible(h, id));
+  return ids.find((id) => /shopping|einkauf/i.test(id + (h.states[id].attributes.friendly_name || ''))) || ids[0];
+}
+const calendarIds = (h) => Object.keys(h.states).filter((id) => id.startsWith('calendar.') && visible(h, id));
+
+const AGENDA_STYLE = `
+  .card{padding:14px 16px;display:flex;flex-direction:column;gap:12px;height:100%}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+  .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
+  section{display:flex;flex-direction:column;gap:6px}
+  section[hidden]{display:none}
+  .add{display:flex;gap:8px}
+  .add input{flex:1;min-width:0;height:38px;border-radius:12px;border:1px solid var(--gh-line);background:var(--gh-ctl);
+     color:var(--gh-txt);padding:0 12px;font:inherit;font-size:14px;outline:none}
+  .add input:focus{border-color:rgba(var(--gh-lit),.6)}
+  .add button{width:38px;height:38px;border-radius:12px;border:0;background:rgba(var(--gh-lit),.22);color:rgb(var(--gh-lit));
+     font-size:22px;line-height:1;cursor:pointer}
+  .it{display:flex;align-items:center;gap:10px;padding:6px 2px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .it:last-child{border-bottom:0}
+  .it button{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--gh-mute);background:none;color:transparent;
+     display:grid;place-items:center;padding:0;cursor:pointer;flex:none}
+  .it button:hover{border-color:rgb(var(--gh-lit));color:rgb(var(--gh-lit))}
+  .it span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ev{display:flex;gap:12px;align-items:baseline;padding:6px 2px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer}
+  .ev:last-child{border-bottom:0}
+  .ev small{flex:none;width:112px;color:var(--gh-mute);font-size:12.5px;white-space:nowrap}
+  .ev.today small{color:rgb(var(--gh-lit))}
+  .ev span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .more,.msg{font-size:12.5px;color:var(--gh-mute)}
+  .more{cursor:pointer}
+`;
+
+class GlassHomeAgendaCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-agenda-editor'); }
+  static getStubConfig() { return {}; }
+
+  setConfig(config) {
+    this._config = { max_items: 6, max_events: 5, days: 7, ...(config || {}) };
+    this._sig = '';
+    if (this._hass) this._refresh();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._config) return;
+    // neu laden, wenn sich eine Liste oder ein Kalender meldet
+    const sig = [this._todo(), ...this._cals()].map((id) => id && `${id}:${hass.states[id]?.last_updated}`).join('|');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._refresh();
+  }
+
+  connectedCallback() { this._tick = setInterval(() => this._refresh(), 15 * 60e3); }
+  disconnectedCallback() { clearInterval(this._tick); }
+
+  getCardSize() { return 5; }
+  getGridOptions() { return { columns: 6, min_columns: 4 }; }
+
+  _todo() { return this._config.todo === false ? null : this._config.todo || defaultTodo(this._hass); }
+  _cals() {
+    const c = this._config.calendars;
+    return c === false ? [] : (c?.length ? c : calendarIds(this._hass)).filter((id) => this._hass.states[id]);
+  }
+
+  async _refresh() {
+    const h = this._hass, c = this._config;
+    const todo = this._todo(), cals = this._cals();
+    try {
+      this._items = todo
+        ? ((await h.callWS({ type: 'todo/item/list', entity_id: todo })).items || []).filter((i) => i.status === 'needs_action')
+        : null;
+    } catch (e) { this._items = []; }
+    const start = new Date(), end = new Date(start.getTime() + (Number(c.days) || 7) * 864e5);
+    const q = `start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+    const lists = await Promise.all(cals.map((id) => h.callApi('GET', `calendars/${id}?${q}`)
+      .then((evs) => evs.map((ev) => ({ ...ev, cal: id }))).catch(() => [])));
+    const when = (t) => new Date(t.dateTime || `${t.date}T00:00:00`);
+    this._events = cals.length ? lists.flat().map((ev) => ({ ...ev, at: when(ev.start), allDay: !ev.start.dateTime }))
+      .sort((a, b) => a.at - b.at) : null;
+    this._render();
+  }
+
+  _shell() {
+    // einmal aufbauen, damit das Eingabefeld beim Aktualisieren nicht verloren geht
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${AGENDA_STYLE}</style><div class="card p">
+      <section class="todo"><div class="hd">${icon('cart', 18)}<span class="tt"></span><small class="cnt"></small></div>
+        <div class="list"></div>
+        <form class="add"><input placeholder="Hinzufügen …" enterkeyhint="done" aria-label="Eintrag hinzufügen"><button type="submit" aria-label="Hinzufügen">+</button></form></section>
+      <section class="cal"><div class="hd">${icon('cal', 18)}Termine<small class="rng"></small></div><div class="evs"></div></section></div>`;
+    const root = this.shadowRoot;
+    root.querySelector('form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const inp = root.querySelector('input'), text = inp.value.trim();
+      if (!text || !this._todo()) return;
+      this._hass.callService('todo', 'add_item', { item: text }, { entity_id: this._todo() });
+      inp.value = '';
+    });
+    root.querySelector('.list').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-uid]');
+      if (b) { this._hass.callService('todo', 'update_item', { item: b.dataset.uid, status: 'completed' }, { entity_id: this._todo() }); return; }
+      if (ev.target.closest('.more')) this._moreInfo(this._todo());
+    });
+    root.querySelector('.evs').addEventListener('click', (ev) => {
+      const r = ev.target.closest('[data-cal]');
+      if (r) this._moreInfo(r.dataset.cal);
+    });
+  }
+
+  _moreInfo(entityId) {
+    this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId }, bubbles: true, composed: true }));
+  }
+
+  _render() {
+    if (!this.shadowRoot) this._shell();
+    const h = this._hass, c = this._config, root = this.shadowRoot;
+    const todo = this._todo(), items = this._items, events = this._events;
+
+    root.querySelector('.todo').hidden = !todo;
+    if (todo) {
+      root.querySelector('.tt').textContent = c.title || h.states[todo]?.attributes.friendly_name || 'Einkaufsliste';
+      root.querySelector('.cnt').textContent = items?.length ? `${items.length} offen` : '';
+      const max = Number(c.max_items) || 6, shown = (items || []).slice(0, max);
+      root.querySelector('.list').innerHTML = !items?.length ? '<div class="msg">Alles erledigt.</div>'
+        : shown.map((i) => `<div class="it"><button data-uid="${esc(i.uid)}" aria-label="Erledigt">${icon('check', 14)}</button><span>${esc(i.summary)}</span></div>`).join('')
+          + (items.length > max ? `<div class="more">+${items.length - max} weitere</div>` : '');
+    }
+
+    root.querySelector('.cal').hidden = !events;
+    if (events) {
+      root.querySelector('.rng').textContent = `nächste ${Number(c.days) || 7} Tage`;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const day = (d) => Math.round((new Date(d).setHours(0, 0, 0, 0) - today) / 864e5);
+      const label = (ev) => {
+        const d = day(ev.at), t = ev.allDay ? '' : ` ${String(ev.at.getHours()).padStart(2, '0')}:${String(ev.at.getMinutes()).padStart(2, '0')}`;
+        if (d <= 0) return `Heute${t}`;
+        if (d === 1) return `Morgen${t}`;
+        return `${WEEKDAY[ev.at.getDay()]}., ${ev.at.getDate()}.${ev.at.getMonth() + 1}.${t}`;
+      };
+      root.querySelector('.evs').innerHTML = !events.length ? '<div class="msg">Keine Termine.</div>'
+        : events.slice(0, Number(c.max_events) || 5).map((ev) => `<div class="ev ${day(ev.at) <= 0 ? 'today' : ''}" data-cal="${esc(ev.cal)}"><small>${label(ev)}</small><span>${esc(ev.summary)}</span></div>`).join('');
+    }
+  }
+}
+
+class GlassHomeAgendaEditor extends GlassHomeFormEditor {
+  static schema = [
+    { name: 'title', selector: { text: {} } },
+    { name: 'todo', selector: { entity: { domain: 'todo' } } },
+    { name: 'calendars', selector: { entity: { multiple: true, domain: 'calendar' } } },
+    { name: 'days', selector: { number: { min: 1, max: 31, step: 1, mode: 'box' } } },
+    { name: 'max_items', selector: { number: { min: 1, max: 20, step: 1, mode: 'box' } } },
+    { name: 'max_events', selector: { number: { min: 1, max: 20, step: 1, mode: 'box' } } },
+  ];
+  static labels = {
+    title: 'Titel der Liste (leer = Name der Liste)', todo: 'Liste (leer = Einkaufsliste)', calendars: 'Kalender (leer = alle)',
+    days: 'Termine für so viele Tage', max_items: 'Höchstens Einträge', max_events: 'Höchstens Termine',
+  };
+  static defaults = { days: 7, max_items: 6, max_events: 5 };
+}
+
+/* ------------------------------------------------------------------ */
 /* Dashboard-Strategie: baut alle Seiten aus den erkannten Modulen     */
 /* strategy: { type: custom:glass-home }                               */
 /* ------------------------------------------------------------------ */
@@ -1659,6 +1829,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const roomCards = rooms.map((a) => ({ type: 'custom:glass-home-room', area: a.area_id, grid_options: { columns: 12 } }));
     const energy = { type: 'custom:glass-home-energy', grid_options: { columns: mods.waste ? 24 : 'full' } };
     const waste = { type: 'custom:glass-home-waste', grid_options: { columns: 12 } };
+    const agenda = { type: 'custom:glass-home-agenda', grid_options: { columns: 12 } };
 
     const section = (cards) => ({ type: 'grid', column_span: 4, cards });
     // Energie kommt auf die Startseite, wenn es keine Räume gibt (z.B. nur PV-Kunde)
@@ -1671,6 +1842,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const extra = [];
     if (energyOnStart) extra.push(energy);
     if (mods.waste) extra.push(waste);
+    if (mods.todo || mods.calendar) extra.push(agenda);
     if (extra.length) startSections.push(section(extra));
 
     const view = (title, path, icon, sections) => ({ title, path, icon, type: 'sections', max_columns: 4, sections });
@@ -1678,7 +1850,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     if (mods.energy && !energyOnStart) {
       views.push(view('Energie', 'energie', 'mdi:lightning-bolt', [section([nav, { ...energy, grid_options: full }])]));
     }
-    if (!roomCards.length && !mods.energy && !mods.waste) {
+    if (!roomCards.length && !mods.energy && !mods.waste && !mods.todo && !mods.calendar) {
       startSections.push(section([{ type: 'markdown', content: 'Glass Home hat noch keine Geräte gefunden. Geräte in HA einem **Bereich** zuordnen, dann erscheinen sie hier automatisch.' }]));
     }
     return { title: c.title || 'Zuhause', views };
@@ -1703,6 +1875,8 @@ if (!customElements.get('glass-home-energy')) customElements.define('glass-home-
 if (!customElements.get('glass-home-energy-editor')) customElements.define('glass-home-energy-editor', GlassHomeEnergyEditor);
 if (!customElements.get('glass-home-waste')) customElements.define('glass-home-waste', GlassHomeWasteCard);
 if (!customElements.get('glass-home-waste-editor')) customElements.define('glass-home-waste-editor', GlassHomeWasteEditor);
+if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-agenda', GlassHomeAgendaCard);
+if (!customElements.get('glass-home-agenda-editor')) customElements.define('glass-home-agenda-editor', GlassHomeAgendaEditor);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
 window.customCards = window.customCards || [];
@@ -1712,6 +1886,7 @@ for (const card of [
   { type: 'glass-home-status', name: 'Glass Home – Status', description: 'Kacheln für Lichter, Rollos, Temperaturen, Fenster und Schlösser. Tippen öffnet die Übersicht aller Geräte.' },
   { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Tageskurve aus dem Energie-Dashboard.' },
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
+  { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
   { type: 'glass-home-scenes', name: 'Glass Home – Szenen', description: 'Szenen und Skripte als Kacheln, dazu „Alles aus“.' },
   { type: 'glass-home-room', name: 'Glass Home – Raum', description: 'Ein Bereich mit Temperatur, Licht- und Rollo-Regler. Geräte kommen automatisch aus dem Bereich.' },
 ]) {
