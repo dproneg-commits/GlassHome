@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.6.1: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.6.2: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Szenen, Raumkarte.
 
 ## Installation über HACS / Marketplace
 
