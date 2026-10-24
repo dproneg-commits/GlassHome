@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.6.0';
+const GH_VERSION = '0.6.1';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -224,7 +224,9 @@ const ROOM_STYLE = `
   .nm small.warn{color:var(--gh-warn)}
   .tp{margin-left:auto;text-align:right;font-size:20px;font-weight:300;line-height:1;white-space:nowrap}
   .tp small{display:block;font-size:11px;color:var(--gh-mute);margin-top:3px}
-  .ctl{display:flex;flex-direction:column;gap:8px;margin-top:auto}
+  .ctl{display:flex;flex-direction:column;justify-content:flex-end;gap:8px;margin-top:auto;flex:1}
+  /* steht nur ein Regler in der Karte, füllt er den Platz neben einer höheren Karte */
+  .ctl>.sl:only-child{flex:1;height:auto;min-height:36px;max-height:80px}
   .sl{height:36px;border-radius:11px;background:var(--gh-ctl);border:1px solid rgba(255,255,255,.1);position:relative;overflow:hidden;
       display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;color:var(--gh-mute);
       touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer}
