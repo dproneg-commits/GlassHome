@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.6.1';
+const GH_VERSION = '0.6.2';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1326,7 +1326,9 @@ const ENERGY_STYLE = `
   svg.cv{position:absolute;inset:0;width:100%;height:100%}
   .yl,.xl,.now{position:absolute;font-size:11.5px;color:var(--gh-mute);white-space:nowrap}
   .yl{left:4px;transform:translateY(-120%)}
-  .xl{bottom:0}
+  /* Zeitmarke mittig unter ihrer Stunde, 00:00 bündig links */
+  .xl{bottom:0;transform:translateX(-50%)}
+  .xl.x0{transform:none}
   .now{top:0}
   .lg{display:flex;gap:14px;font-size:12px;color:var(--gh-mute);margin-top:4px}
   .lg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
@@ -1400,7 +1402,9 @@ class GlassHomeEnergyCard extends HTMLElement {
         solar: src.find((s) => s.type === 'solar' && s.stat_rate)?.stat_rate,
         grid: grid.find((g) => g.stat_rate)?.stat_rate,
       };
-      const all = [...solar, ...from, ...to];
+      // dieselbe Statistik kann in mehreren Feldern stehen, sie zählt nur einmal
+      for (const k of ['solar', 'from', 'to']) this._ids[k] = [...new Set(this._ids[k])];
+      const all = [...this._ids.solar, ...this._ids.from, ...this._ids.to];
       if (!all.length) { this._stats = { empty: true }; return; }
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const res = await h.callWS({
@@ -1416,7 +1420,7 @@ class GlassHomeEnergyCard extends HTMLElement {
         }
         return out;
       };
-      this._stats = { solar: hours(solar), from: hours(from), to: hours(to) };
+      this._stats = { solar: hours(this._ids.solar), from: hours(this._ids.from), to: hours(this._ids.to) };
     } catch (e) {
       this._stats = { error: e.message || String(e) };
     } finally {
@@ -1455,8 +1459,10 @@ class GlassHomeEnergyCard extends HTMLElement {
     if (pGrid != null) tiles.push(pGrid < 0
       ? { c: '95,214,142', i: 'plug', v: kw(pGrid), l: 'Einspeisung jetzt' }
       : { c: '255,138,101', i: 'plug', v: kw(pGrid), l: 'Netzbezug jetzt' });
-    else if (hasSolar) tiles.push({ c: '95,214,142', i: 'plug', v: kWh(to), l: 'Eingespeist heute' });
-    else tiles.push({ c: '255,138,101', i: 'plug', v: kWh(from), l: 'Netzbezug heute' });
+    else {
+      if (hasSolar || to > 0) tiles.push({ c: '95,214,142', i: 'plug', v: kWh(to), l: 'Eingespeist heute' });
+      if (!hasSolar) tiles.push({ c: '255,138,101', i: 'plug', v: kWh(from), l: 'Netzbezug heute' });
+    }
     if (hasSolar && autark != null) tiles.push({ c: '201,210,220', i: 'leaf', v: `${autark} %`, l: 'Autarkie heute' });
 
     let chart = '';
@@ -1483,12 +1489,12 @@ class GlassHomeEnergyCard extends HTMLElement {
       const grid = [0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="rgba(255,255,255,.08)"/>`).join('');
       const pctY = (v) => (y(v) / H) * 100;
       const labels = [0.5, 1].map((f) => `<span class="yl" style="top:${pctY(max * f)}%">${fmt(max * f)} kWh</span>`).join('')
-        + [0, 6, 12, 18].map((hr) => `<span class="xl" style="left:${(hr / 24) * 100}%">${String(hr).padStart(2, '0')}:00</span>`).join('')
+        + [0, 6, 12, 18].map((hr) => `<span class="xl${hr ? '' : ' x0'}" style="left:${(hr / 24) * 100}%">${String(hr).padStart(2, '0')}:00</span>`).join('')
         + `<span class="now" style="left:calc(${Math.min((now / 24) * 100, 92)}% + 6px)">jetzt</span>`;
       chart = `<section class="chart p">
         <div class="hd">${icon(hasSolar ? 'sun' : 'bolt', 18)}${hasSolar ? 'Photovoltaik heute' : 'Energie heute'}<small>pro Stunde</small></div>
         <div class="sum">${hasSolar ? `<span>Erzeugt <b>${kWh(pv)}</b></span>` : ''}<span>Verbraucht <b>${kWh(use)}</b></span>
-          ${hasSolar ? `<span>Eingespeist <b>${kWh(to)}</b></span>` : ''}<span>Bezogen <b>${kWh(from)}</b></span></div>
+          ${hasSolar || to > 0 ? `<span>Eingespeist <b>${kWh(to)}</b></span>` : ''}<span>Bezogen <b>${kWh(from)}</b></span></div>
         <div class="plot"><svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
           <defs><linearGradient id="gy" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5c84c" stop-opacity=".42"/><stop offset="1" stop-color="#f5c84c" stop-opacity="0"/></linearGradient></defs>
           ${grid}<line x1="0" x2="${W}" y1="${bot}" y2="${bot}" stroke="rgba(255,255,255,.12)"/>
