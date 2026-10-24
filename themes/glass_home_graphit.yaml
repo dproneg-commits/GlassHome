@@ -1,0 +1,21 @@
+# Glass Home · Graphit
+# In configuration.yaml: frontend: themes: !include_dir_merge_named themes
+glass_home_graphit:
+  # Hintergrund des Dashboards
+  lovelace-background: "radial-gradient(60vw 60vw at 5% 0%, rgba(120,130,145,.32), transparent 65%), radial-gradient(50vw 50vw at 100% 100%, rgba(90,95,105,.35), transparent 65%), linear-gradient(160deg, #141619, #22262b) fixed"
+  primary-background-color: "#141619"
+  primary-text-color: "#eef1f4"
+  secondary-text-color: "#a3a9b1"
+  primary-color: "#c9d2dc"
+  accent-color: "#ffb74d"
+  card-background-color: "rgba(255,255,255,.07)"
+  ha-card-border-radius: "22px"
+  # Farben der Glass-Home-Karten
+  glass-home-text: "#eef1f4"
+  glass-home-muted: "#a3a9b1"
+  glass-home-dim: "#767c84"
+  glass-home-card: "rgba(255,255,255,.07)"
+  glass-home-border: "rgba(255,255,255,.14)"
+  glass-home-light: "255,183,77"
+  glass-home-cover: "rgba(201,210,220,.22)"
+  glass-home-warn: "#ffd49a"

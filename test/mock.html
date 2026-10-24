@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Raumkarte</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;padding:12px;box-sizing:border-box;
+  background:radial-gradient(60vw 60vw at 5% 0%,rgba(120,130,145,.32),transparent 65%),radial-gradient(50vw 50vw at 100% 100%,rgba(90,95,105,.35),transparent 65%),linear-gradient(160deg,#141619,#22262b) fixed}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:700px){.grid{grid-template-columns:1fr 1fr;gap:8px}}
+#log{margin-top:12px;font:12px monospace;color:#9fb0c4;white-space:pre-wrap}
+</style></head><body>
+<div id="nv" style="margin-bottom:10px"></div>
+<div id="hd" style="margin-bottom:10px"></div>
+<div id="sc" style="margin-bottom:10px"></div>
+<div class="grid" id="g"></div>
+<div id="log"></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Beispielhaus: Kunde mit Licht, Rollos, Sensoren
+const now = Date.now(), ago = (h) => new Date(now - h * 3600e3).toISOString();
+const S = {}, E = {}, D = {};
+const add = (id, state, attrs, area, extra = {}) => {
+  S[id] = { entity_id: id, state, attributes: { friendly_name: id, ...attrs }, last_changed: extra.changed || ago(0.2) };
+  E[id] = { entity_id: id, area_id: area, device_id: null, labels: [], ...extra.reg };
+};
+const dim = { supported_color_modes: ['brightness'] }, onoff = { supported_color_modes: ['onoff'] };
+add('light.wz_decke', 'on', { ...dim, brightness: 178 }, 'wohnzimmer');
+add('light.wz_steh', 'on', { ...dim, brightness: 102 }, 'wohnzimmer');
+add('cover.wz', 'open', { current_position: 40, supported_features: 15 }, 'wohnzimmer');
+add('sensor.wz_t', '21.8', { device_class: 'temperature' }, 'wohnzimmer');
+add('sensor.wz_h', '48', { device_class: 'humidity' }, 'wohnzimmer');
+add('light.kueche', 'on', onoff, 'kueche');
+add('cover.kueche', 'open', { current_position: 100, supported_features: 15 }, 'kueche');
+add('climate.kueche', 'heat', { current_temperature: 22.4 }, 'kueche');
+add('light.schlaf', 'off', dim, 'schlafzimmer');
+add('cover.schlaf', 'closed', { current_position: 0, supported_features: 15 }, 'schlafzimmer');
+add('binary_sensor.schlaf_fenster', 'on', { device_class: 'window', friendly_name: 'Schlafzimmerfenster' }, 'schlafzimmer');
+add('sensor.schlaf_t', '19.2', { device_class: 'temperature' }, 'schlafzimmer');
+add('light.keller', 'on', onoff, 'keller', { changed: ago(3.2) });
+add('cover.markise', 'closed', { device_class: 'awning', supported_features: 3 }, 'terrasse');
+add('sensor.bad_t', '23.1', { device_class: 'temperature' }, 'bad');
+add('light.hidden', 'on', onoff, 'bad', { reg: { hidden: true } });
+add('weather.home', 'partlycloudy', { temperature: 11.4, temperature_unit: '°C', apparent_temperature: 9.2, humidity: 71 }, null);
+add('scene.abend', ago(1), { friendly_name: 'Abend' }, null);
+add('scene.gute_nacht', ago(20), { friendly_name: 'Gute Nacht' }, null);
+add('scene.abwesend', ago(48), { friendly_name: 'Abwesend' }, null);
+add('scene.film', ago(30), { friendly_name: 'Film' }, null);
+add('binary_sensor.wz_tuer', 'off', { device_class: 'door', friendly_name: 'Wohnzimmer Terrassentür' }, 'wohnzimmer');
+add('lock.haustuer', 'locked', { friendly_name: 'Haustür' }, 'vorraum');
+const hass = {
+  states: S, entities: E, devices: D,
+  areas: {
+    wohnzimmer: { area_id: 'wohnzimmer', name: 'Wohnzimmer' }, kueche: { area_id: 'kueche', name: 'Küche' },
+    schlafzimmer: { area_id: 'schlafzimmer', name: 'Schlafzimmer' }, keller: { area_id: 'keller', name: 'Keller' },
+    terrasse: { area_id: 'terrasse', name: 'Terrasse' }, bad: { area_id: 'bad', name: 'Bad' },
+  },
+  user: { name: 'Familie Huber' },
+  connection: { subscribeMessage(cb, msg) {
+    const d = (n) => new Date(now + n * 864e5).toISOString();
+    setTimeout(() => cb({ type: 'daily', forecast: [{ datetime: d(0), temperature: 12 }, { datetime: d(1), temperature: 14 }, { datetime: d(2), temperature: 12 }, { datetime: d(3), temperature: 9 }] }), 50);
+    return Promise.resolve(() => {});
+  } },
+  calls: [],
+  callService(d, s, data) { this.calls.push([d, s, data]); document.getElementById('log').textContent += `${d}.${s} ${JSON.stringify(data)}\n`; },
+};
+const nvHost = document.getElementById('nv');
+nvHost.lovelace = { config: { views: [{ title: 'Start', path: 'start', icon: 'home' }, { title: 'Räume', path: 'raeume' }, { title: 'Einkauf', path: 'einkauf' }, { title: 'Energie', path: 'energie' }, { title: 'Detail', path: 'x', subview: true }] } };
+const nv = document.createElement('glass-home-nav');
+nv.setConfig({});
+nvHost.appendChild(nv);
+nv.hass = hass;
+const sc = document.createElement('glass-home-status');
+sc.setConfig({});
+document.getElementById('sc').appendChild(sc);
+sc.hass = hass;
+window.__sc = sc;
+const hd = document.createElement('glass-home-header');
+hd.setConfig({});
+document.getElementById('hd').appendChild(hd);
+hd.hass = hass;
+window.__hd = hd;
+const cards = [];
+for (const a of Object.keys(hass.areas)) {
+  const c = document.createElement('glass-home-room');
+  c.setConfig({ area: a });
+  c.hass = hass;
+  document.getElementById('g').appendChild(c);
+  cards.push(c);
+}
+window.__hass = hass; window.__cards = cards;
+</script></body></html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Kunde 1 (PV + Müll)</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;padding:12px;box-sizing:border-box;
+  background:radial-gradient(60vw 60vw at 5% 0%,rgba(120,130,145,.32),transparent 65%),radial-gradient(50vw 50vw at 100% 100%,rgba(90,95,105,.35),transparent 65%),linear-gradient(160deg,#141619,#22262b) fixed}
+.row{display:grid;grid-template-columns:1fr 330px;gap:10px;margin-top:10px}
+@media (max-width:700px){.row{grid-template-columns:1fr}}
+</style></head><body>
+<div id="hd"></div>
+<div class="row"><div id="en"></div><div id="ws"></div></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Kunde 1: keine Lichter/Sensoren, nur PV und Müll
+const S = {}, E = {};
+const add = (id, state, attrs) => { S[id] = { entity_id: id, state, attributes: attrs, last_changed: new Date().toISOString() }; E[id] = { entity_id: id, labels: [] }; };
+add('weather.home', 'sunny', { temperature: 16.2, temperature_unit: '°C', apparent_temperature: 15 });
+add('sensor.pv_leistung', '4300', { device_class: 'power', unit_of_measurement: 'W', friendly_name: 'PV Leistung' });
+add('sensor.netz_leistung', '-2100', { device_class: 'power', unit_of_measurement: 'W', friendly_name: 'Netz Leistung' });
+add('sensor.biomuell', 'morgen', { daysTo: 1, friendly_name: 'Biomüll' });
+add('sensor.restmuell', 'in 5 Tagen', { daysTo: 5, friendly_name: 'Restmüll' });
+add('sensor.gelber_sack', 'in 7 Tagen', { daysTo: 7, friendly_name: 'Gelber Sack' });
+add('sensor.altpapier', 'in 11 Tagen', { daysTo: 11, friendly_name: 'Altpapier' });
+const start = new Date(); start.setHours(0, 0, 0, 0);
+const nowH = new Date().getHours();
+const solarCurve = (h) => Math.max(0, Math.sin(((h - 6) / 13) * Math.PI)) * 4.2;
+const rows = (fn) => Array.from({ length: nowH + 1 }, (_, h) => ({ start: start.getTime() + h * 3600e3, change: +fn(h).toFixed(2) }));
+const hass = {
+  states: S, entities: E, devices: {}, areas: {}, user: { name: 'Familie Berger' }, calls: [],
+  callService(d, s, data) { this.calls.push([d, s, data]); },
+  async callWS(msg) {
+    if (msg.type === 'energy/get_prefs') return { energy_sources: [
+      { type: 'solar', stat_energy_from: 'sensor.pv_energie' },
+      { type: 'grid', flow_from: [{ stat_energy_from: 'sensor.netz_bezug' }], flow_to: [{ stat_energy_to: 'sensor.netz_einspeisung' }] },
+    ] };
+    if (msg.type === 'recorder/statistics_during_period') {
+      const use = (h) => 0.35 + (h > 6 && h < 9 ? 0.6 : 0) + (h > 17 && h < 22 ? 0.8 : 0);
+      return {
+        'sensor.pv_energie': rows(solarCurve),
+        'sensor.netz_bezug': rows((h) => Math.max(0, use(h) - solarCurve(h))),
+        'sensor.netz_einspeisung': rows((h) => Math.max(0, solarCurve(h) - use(h))),
+      };
+    }
+    throw new Error('unbekannt ' + msg.type);
+  },
+  connection: { subscribeMessage(cb) { const d = (n) => new Date(Date.now() + n * 864e5).toISOString();
+    setTimeout(() => cb({ forecast: [{ datetime: d(0), temperature: 16 }, { datetime: d(1), temperature: 15 }, { datetime: d(2), temperature: 12 }, { datetime: d(3), temperature: 9 }] }), 30);
+    return Promise.resolve(() => {}); } },
+};
+const mk = (tag, cfg, host) => { const c = document.createElement(tag); c.setConfig(cfg); document.getElementById(host).appendChild(c); c.hass = hass; return c; };
+mk('glass-home-header', {}, 'hd');
+window.__en = mk('glass-home-energy', { solar_power: 'sensor.pv_leistung', grid_power: 'sensor.netz_leistung' }, 'en');
+window.__ws = mk('glass-home-waste', {}, 'ws');
+</script></body></html>
