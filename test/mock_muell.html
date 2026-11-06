@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Müllkalender ohne Sensoren</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;padding:12px;box-sizing:border-box;background:linear-gradient(160deg,#141619,#22262b) fixed;display:grid;gap:12px;max-width:900px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+</style></head><body>
+<div id="hd"></div>
+<div class="row"><div id="w"></div><div id="ag"></div></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Waste Collection Schedule nur mit Kalender (wie neuere Versionen), dazu ein Familienkalender
+const S = {}, E = {};
+const add = (id, state, attrs, platform) => { S[id] = { entity_id: id, state, attributes: attrs, last_changed: new Date().toISOString(), last_updated: new Date().toISOString() }; E[id] = { entity_id: id, labels: [], platform }; };
+const pad = (n) => String(n).padStart(2, '0');
+const day = (d) => { const x = new Date(); x.setDate(x.getDate() + d); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+add('calendar.waste_collection_schedule_mullkalender', 'off', { friendly_name: 'Müllkalender', message: 'Biomüll', all_day: true, start_time: `${day(1)} 00:00:00`, end_time: `${day(2)} 00:00:00` }, 'waste_collection_schedule');
+add('calendar.familie', 'off', { friendly_name: 'Familie' });
+add('todo.shopping_list', '1', { friendly_name: 'Einkaufsliste' });
+const ev = (summary, d) => ({ summary, start: { date: day(d) }, end: { date: day(d + 1) } });
+const hass = {
+  states: S, entities: E, devices: {}, areas: {}, user: { name: 'Silvia', is_admin: true }, config: {}, calls: [],
+  callService(d, s, data, target) { this.calls.push([d, s, data, target]); },
+  async callWS(msg) {
+    if (msg.type === 'todo/item/list') return { items: [{ uid: 'a', summary: 'Milch', status: 'needs_action' }] };
+    if (msg.type === 'energy/get_prefs') return { energy_sources: [] };
+    throw new Error('unbekannt ' + msg.type);
+  },
+  async callApi(method, path) {
+    if (path.startsWith('calendars/calendar.waste_collection_schedule_mullkalender'))
+      return [ev('Biomüll', 1), ev('Restmüll', 9), ev('Papier', 14), ev('Biomüll', 15), ev('Leicht-/Metallverpackung', 22)];
+    if (path.startsWith('calendars/calendar.familie')) return [ev('Oma Geburtstag', 2)];
+    return [];
+  },
+};
+const mk = (tag, el) => { const c = document.createElement(tag); c.setConfig({}); document.getElementById(el).appendChild(c); c.hass = hass; return c; };
+window.__hd = mk('glass-home-header', 'hd'); window.__w = mk('glass-home-waste', 'w'); window.__ag = mk('glass-home-agenda', 'ag');
+window.__hass = hass;
+</script></body></html>

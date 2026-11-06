@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.7.3';
+const GH_VERSION = '0.7.4';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -112,6 +112,19 @@ function areaEntities(hass, areaId) {
 }
 
 // Welche Module gibt es in dieser Installation? Grundlage für Strategie und Navigation.
+// Kalender von Waste Collection Schedule
+function isWasteCal(hass, id) {
+  return id.startsWith('calendar.') && (hass.entities?.[id]?.platform === 'waste_collection_schedule' || id.startsWith('calendar.waste_collection_schedule'));
+}
+
+// Tage bis zu einem Kalenderzeitpunkt (ganztägig "2026-11-11" oder mit Uhrzeit)
+function daysUntil(t) {
+  if (!t) return NaN;
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(t) ? `${t}T00:00:00` : t.replace(' ', 'T'));
+  const a = new Date(); a.setHours(0, 0, 0, 0); d.setHours(0, 0, 0, 0);
+  return Math.round((d - a) / 864e5);
+}
+
 function detectModules(hass) {
   const ids = Object.keys(hass.states).filter((id) => visible(hass, id));
   const has = (pred) => ids.some(pred);
@@ -123,10 +136,11 @@ function detectModules(hass) {
     openings: has((id) => id.startsWith('binary_sensor.') && ['door', 'window', 'opening', 'garage_door'].includes(dc(id))),
     climate: has((id) => id.startsWith('climate.') || (id.startsWith('sensor.') && dc(id) === 'temperature')),
     todo: has((id) => id.startsWith('todo.')),
-    calendar: has((id) => id.startsWith('calendar.')),
+    calendar: has((id) => id.startsWith('calendar.') && !isWasteCal(hass, id)),
     scenes: has((id) => id.startsWith('scene.')),
     // Waste Collection Schedule legt Sensoren mit dem Attribut "daysTo" an
-    waste: has((id) => id.startsWith('sensor.') && hass.states[id].attributes.daysTo !== undefined),
+    // oder nur deren Kalender (neuere Versionen legen Sensoren nicht mehr automatisch an)
+    waste: has((id) => (id.startsWith('sensor.') && hass.states[id].attributes.daysTo !== undefined) || isWasteCal(hass, id)),
     // Energie/PV wird erst mit dem Energie-Dashboard geprüft (async, folgt im Energie-Modul)
     energy: false,
   };
@@ -534,8 +548,8 @@ class GlassHomeHeaderCard extends HTMLElement {
 
   _signature() {
     const h = this._hass;
-    const ids = Object.keys(h.states).filter((id) => /^(light|lock|binary_sensor|weather)\./.test(id) || (id.startsWith('sensor.') && h.states[id].attributes.device_class === 'temperature'));
-    return ids.map((id) => `${id}|${h.states[id].state}|${h.states[id].attributes.temperature ?? ''}`).join(';') + greeting();
+    const ids = Object.keys(h.states).filter((id) => /^(light|lock|binary_sensor|weather)\./.test(id) || isWasteCal(h, id) || (id.startsWith('sensor.') && (h.states[id].attributes.device_class === 'temperature' || h.states[id].attributes.daysTo !== undefined)));
+    return ids.map((id) => { const a = h.states[id].attributes; return `${id}|${h.states[id].state}|${a.temperature ?? ''}|${a.daysTo ?? ''}|${a.start_time ?? ''}`; }).join(';') + greeting();
   }
 
   _alerts() {
@@ -563,6 +577,13 @@ class GlassHomeHeaderCard extends HTMLElement {
     for (const id of wasteSensors(h)) {
       const d = Number(h.states[id].attributes.daysTo);
       if (d === 0 || d === 1) out.push({ text: `${d ? 'Morgen' : 'Heute'} ${nm(id)}`, icon: 'trash', act: 'Anzeigen', run: () => this._moreInfo(id) });
+    }
+    // ohne Sensoren: nächster Termin des Müllkalenders (Attribute message/start_time)
+    if (!wasteSensors(h).length) {
+      for (const id of ids.filter((x) => isWasteCal(h, x))) {
+        const a = h.states[id].attributes, d = daysUntil(a.start_time);
+        if (a.message && (d === 0 || d === 1)) out.push({ text: `${d ? 'Morgen' : 'Heute'} ${a.message}`, icon: 'trash', act: 'Anzeigen', run: () => this._moreInfo(id) });
+      }
     }
     // Schlösser
     const locks = ids.filter((id) => id.startsWith('lock.'));
@@ -1662,34 +1683,68 @@ class GlassHomeWasteCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    const sig = this._sensors().map((id) => `${id}|${hass.states[id].attributes.daysTo}`).join(';');
+    const cals = this._cals();
+    const sig = this._sensors().map((id) => `${id}|${hass.states[id].attributes.daysTo}`).join(';')
+      + cals.map((id) => `${id}|${hass.states[id].attributes.start_time}`).join(';') + new Date().toDateString();
     if (sig === this._sig) return;
     this._sig = sig;
-    this._render();
+    if (cals.length) this._load(cals);
+    else this._render();
   }
+
+  connectedCallback() { this._tick = setInterval(() => { this._sig = ''; if (this._hass) this.hass = this._hass; }, 60 * 60e3); }
+  disconnectedCallback() { clearInterval(this._tick); }
 
   getCardSize() { return 4; }
   getGridOptions() { return { columns: 6, min_columns: 4 }; }
 
   _sensors() {
     const c = this._config;
-    return (c.entities?.length ? c.entities : wasteSensors(this._hass)).filter((id) => this._hass.states[id]);
+    return (c.entities?.length ? c.entities.filter((id) => id.startsWith('sensor.')) : wasteSensors(this._hass)).filter((id) => this._hass.states[id]);
+  }
+
+  // Kalender nur, wenn es keine Sensoren gibt (oder einer ausdrücklich gewählt ist)
+  _cals() {
+    const c = this._config, h = this._hass;
+    if (c.entities?.length) return c.entities.filter((id) => id.startsWith('calendar.') && h.states[id]);
+    if (this._sensors().length) return [];
+    return Object.keys(h.states).filter((id) => visible(h, id) && isWasteCal(h, id));
+  }
+
+  // nächster Termin je Müllart aus dem Kalender
+  async _load(cals) {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + 60 * 864e5);
+    const q = `start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+    const lists = await Promise.all(cals.map((id) => this._hass.callApi('GET', `calendars/${id}?${q}`)
+      .then((evs) => evs.map((ev) => ({ ...ev, cal: id }))).catch(() => [])));
+    const next = new Map();
+    for (const ev of lists.flat()) {
+      const d = daysUntil(ev.start?.date || ev.start?.dateTime), name = (ev.summary || '').trim();
+      if (!name || isNaN(d) || d < 0) continue;
+      if (!next.has(name) || next.get(name).d > d) next.set(name, { id: ev.cal, name, d });
+    }
+    this._calItems = [...next.values()];
+    this._render();
   }
 
   _render() {
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
     const h = this._hass;
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const items = this._sensors().map((id) => {
+    const fromSensors = this._sensors().map((id) => {
       const s = h.states[id];
-      const d = Number(s.attributes.daysTo);
-      const name = s.attributes.friendly_name || id;
-      return { id, name, d, date: new Date(today.getTime() + d * 864e5) };
-    }).filter((x) => !isNaN(x.d) && x.d >= 0).sort((a, b) => a.d - b.d).slice(0, Number(this._config.max) || 5);
+      return { id, name: s.attributes.friendly_name || id, d: Number(s.attributes.daysTo) };
+    });
+    const items = [...fromSensors, ...(this._cals().length ? this._calItems || [] : [])]
+      .map((x) => ({ ...x, date: new Date(today.getTime() + x.d * 864e5) }))
+      .filter((x) => !isNaN(x.d) && x.d >= 0).sort((a, b) => a.d - b.d).slice(0, Number(this._config.max) || 5);
 
     let body;
-    if (!items.length) {
-      body = '<div class="msg">Keine Abholtermine gefunden. Die Integration „Waste Collection Schedule“ aus HACS einrichten und pro Müllart einen Sensor anlegen.</div>';
+    if (!items.length && this._cals().length && !this._calItems) {
+      body = '';
+    } else if (!items.length) {
+      body = '<div class="msg">Keine Abholtermine gefunden. Die Integration „Waste Collection Schedule“ einrichten (Einstellungen → Marketplace).</div>';
     } else {
       const [n, ...rest] = items;
       const hint = n.d === 1 ? ' · heute Abend rausstellen' : n.d === 0 ? ' · heute' : '';
@@ -1707,10 +1762,10 @@ class GlassHomeWasteCard extends HTMLElement {
 class GlassHomeWasteEditor extends GlassHomeFormEditor {
   static schema = [
     { name: 'title', selector: { text: {} } },
-    { name: 'entities', selector: { entity: { multiple: true, domain: 'sensor' } } },
+    { name: 'entities', selector: { entity: { multiple: true, domain: ['sensor', 'calendar'] } } },
     { name: 'max', selector: { number: { min: 1, max: 10, step: 1, mode: 'box' } } },
   ];
-  static labels = { title: 'Titel (leer = Müllabfuhr)', entities: 'Müll-Sensoren (leer = automatisch)', max: 'Höchstens anzeigen' };
+  static labels = { title: 'Titel (leer = Müllabfuhr)', entities: 'Müll-Sensoren oder -Kalender (leer = automatisch)', max: 'Höchstens anzeigen' };
   static defaults = { max: 5 };
 }
 
@@ -1723,7 +1778,8 @@ function defaultTodo(h) {
   const ids = Object.keys(h.states).filter((id) => id.startsWith('todo.') && visible(h, id));
   return ids.find((id) => /shopping|einkauf/i.test(id + (h.states[id].attributes.friendly_name || ''))) || ids[0];
 }
-const calendarIds = (h) => Object.keys(h.states).filter((id) => id.startsWith('calendar.') && visible(h, id));
+// Müllkalender zeigt die Müllkarte, deshalb hier nicht noch einmal
+const calendarIds = (h) => Object.keys(h.states).filter((id) => id.startsWith('calendar.') && visible(h, id) && !isWasteCal(h, id));
 
 const AGENDA_STYLE = `
   .card{padding:14px 16px;display:flex;flex-direction:column;gap:12px;height:100%}
