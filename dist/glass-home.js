@@ -2087,8 +2087,15 @@ const GRID_STYLE = `
   .g{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:var(--gh-row,64px);gap:var(--gh-gap);grid-auto-flow:row dense;
      max-width:var(--glass-home-max-width,1920px);margin:0 auto}
   .c{position:relative;min-width:0;min-height:0;grid-column:span var(--w);grid-row:span var(--h)}
-  .c>*{display:block;height:100%;overflow:hidden;border-radius:var(--glass-home-radius,22px)}
-  .ed{position:absolute;top:6px;right:6px;z-index:2;display:flex;gap:4px}
+  .c>*:not(.ed){display:block;height:100%;overflow:hidden;border-radius:var(--glass-home-radius,22px)}
+  .ed{position:absolute;top:6px;right:6px;left:6px;z-index:2;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;height:auto;pointer-events:none}
+  .ed button{pointer-events:auto}
+  .ed{gap:2px}
+  .ed .grp{display:flex;background:rgba(0,0,0,.6);border-radius:999px;pointer-events:auto}
+  .ed .grp button{background:none;padding:6px 7px;font:600 11px/1 system-ui;min-width:24px}
+  .ed .grp button:hover{background:rgba(255,255,255,.15)}
+  .ed .dim{color:#cfd6de;font:600 11px/1 system-ui;padding:6px 2px;align-self:center}
+  .c.edit{outline:1px dashed rgba(255,255,255,.25);outline-offset:2px;border-radius:var(--glass-home-radius,22px)}
   .ed button,.add{border:0;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1 system-ui;padding:7px 10px;cursor:pointer}
   .add{grid-column:span 12;padding:14px;border:1px dashed rgba(255,255,255,.3);background:rgba(255,255,255,.04);border-radius:16px}
   /* Tablet hochkant: Flächen halb statt drittel breit */
@@ -2138,6 +2145,32 @@ class GlassHomeGridView extends HTMLElement {
     this.style.setProperty('--gh-row', `${row}px`);
   }
 
+  // Größe ändern oder verschieben: Ansicht in der Dashboard-Konfiguration anpassen und speichern
+  _change(i, a, w, h) {
+    const l = this._lovelace;
+    if (!l?.config?.views || typeof l.saveConfig !== 'function') return;
+    const views = l.config.views.slice();
+    const view = { ...views[this._index] };
+    const cards = (view.cards || []).slice();
+    if (!cards[i]) return;
+    if (a === 'up' || a === 'down') {
+      const j = a === 'up' ? i - 1 : i + 1;
+      if (j < 0 || j >= cards.length) return;
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    } else {
+      const STEPS = [1, 2, 3, 4, 6, 8, 9, 12];
+      let nw = w, nh = h;
+      if (a === 'w+') nw = STEPS.find((x) => x > w) || 12;
+      if (a === 'w-') nw = [...STEPS].reverse().find((x) => x < w) || 1;
+      if (a === 'h+') nh = Math.min(12, h + 1);
+      if (a === 'h-') nh = Math.max(1, h - 1);
+      cards[i] = { ...cards[i], grid_options: { ...(cards[i].grid_options || {}), columns: nw, rows: nh } };
+    }
+    view.cards = cards;
+    views[this._index] = view;
+    l.saveConfig({ ...l.config, views });
+  }
+
   _render() {
     if (!this._cards || !this.isConnected) return;
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
@@ -2158,9 +2191,14 @@ class GlassHomeGridView extends HTMLElement {
       if (edit) {
         const ed = document.createElement('div');
         ed.className = 'ed';
-        ed.innerHTML = '<button data-a="edit">Bearbeiten</button><button data-a="del">Löschen</button>';
+        ed.innerHTML = '<div class="grp"><button data-a="up" title="Nach vorne">‹</button><button data-a="down" title="Nach hinten">›</button></div>'
+          + '<div class="grp"><button data-a="w-" title="Schmaler">B−</button><span class="dim">' + w + '×' + h + '</span><button data-a="w+" title="Breiter">B+</button>'
+          + '<button data-a="h-" title="Niedriger">H−</button><button data-a="h+" title="Höher">H+</button></div>'
+          + '<div class="grp"><button data-a="edit" title="Bearbeiten">✎</button><button data-a="del" title="Löschen">✕</button></div>';
+        cell.classList.add('edit');
         ed.addEventListener('click', (ev) => {
           const a = ev.target.closest('button')?.dataset.a;
+          if (a && /^(up|down|w[+-]|h[+-])$/.test(a)) { this._change(i, a, w, h); return; }
           if (a === 'edit') this.dispatchEvent(new CustomEvent('ll-edit-card', { detail: { path: [this._index, i] }, bubbles: true, composed: true }));
           if (a === 'del') this.dispatchEvent(new CustomEvent('ll-delete-card', { detail: { path: [this._index, i], confirm: true }, bubbles: true, composed: true }));
         });

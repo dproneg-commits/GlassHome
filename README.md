@@ -48,8 +48,10 @@ Standard ist das **Glass-Raster** (eigene Ansicht `custom:glass-home-grid`, 12 S
 
 Eigene Karten in der Ansicht bekommen ihre Größe über `grid_options: { columns, rows }` (z. B. 4 × 6, 8 × 3, 12 × 6). Tablet hochkant: Flächen halb breit, Handy: alles untereinander. Mit `layout: sections` in der Strategie gibt es das bisherige HA-Abschnittslayout.
 
+Im Bearbeiten-Modus (nach „Kontrolle übernehmen“) hat jede Karte eine kleine Leiste: ‹ › verschiebt sie, B−/B+ und H−/H+ ändern Breite (1, 2, 3, 4, 6, 8, 9, 12) und Höhe, ✎ öffnet den Karten-Editor, ✕ löscht (Rückgängig über den Pfeil oben). „+ Karte hinzufügen“ listet alle Glass-Karten.
+
 Daraus entsteht bei jedem Laden:
-- **Start:** Navigation, Kopfzeile, Statuskacheln (nur wenn es Lichter, Rollos, Temperaturen, Fenster oder Schlösser gibt), darunter eine Raumkarte pro Bereich mit Geräten.
+- **Start:** Navigation, Kopfzeile, Statuskacheln (nur wenn es Lichter, Rollos, Steckdosen, Personen, Temperaturen, Fenster oder Schlösser gibt), darunter eine Raumkarte pro Bereich mit Geräten.
 - Gibt es keine Räume, aber PV: Energie direkt auf der Startseite. Müll kommt auf die Startseite, wenn vorhanden (Sensoren oder nur der Kalender von Waste Collection Schedule).
 - **Energie:** eigene Seite, wenn es PV/Energie und Räume gibt.
 
