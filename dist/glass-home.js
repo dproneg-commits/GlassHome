@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.7.2';
+const GH_VERSION = '0.7.3';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -875,6 +875,62 @@ function findLovelace(el) {
   return null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Kiosk: HA-Kopfzeile und Seitenleiste ausblenden (z. B. Wandtablet) */
+/* kiosk: [viewer] | non_admin | true; ?kiosk / ?kiosk=0 in der URL   */
+/* ------------------------------------------------------------------ */
+const KIOSK_CSS = {
+  // neue Seitenleiste ab HA 2026.10 (.sidebar-shell/.app-content) und ältere (.mdc-drawer)
+  drawer: '.sidebar-shell,.mdc-drawer{display:none!important}.app-content,.mdc-drawer-app-content{padding-left:0!important;padding-inline-start:0!important;margin-left:0!important;width:100%!important}',
+  main: 'ha-sidebar{display:none!important}',
+  root: '.header{display:none!important}#view{padding-top:0!important;margin-top:0!important;min-height:100vh!important}',
+};
+let kioskUsers = 0;
+
+function kioskWanted(hass, opt) {
+  // ?kiosk schaltet für diesen Tab ein, ?kiosk=0 aus (z. B. um an die Einstellungen zu kommen)
+  const q = new URLSearchParams(location.search).get('kiosk');
+  try { if (q !== null) sessionStorage.setItem('gh_kiosk', q === '0' ? '0' : '1'); } catch (e) {}
+  let s = null;
+  try { s = sessionStorage.getItem('gh_kiosk'); } catch (e) {}
+  if (q !== null) s = q === '0' ? '0' : '1';
+  if (s === '0') return false;
+  if (s === '1') return true;
+  const u = hass?.user;
+  if (!opt || !u) return false;
+  if (opt === true || opt === 'all') return true;
+  if (opt === 'non_admin') return !u.is_admin;
+  const list = Array.isArray(opt) ? opt : [opt];
+  return list.some((n) => String(n).toLowerCase() === (u.name || '').toLowerCase());
+}
+
+function kioskStyle(root, css) {
+  if (!root) return false;
+  let st = root.querySelector('style[data-gh-kiosk]');
+  if (!css) { st?.remove(); return false; }
+  if (!st) { st = document.createElement('style'); st.dataset.ghKiosk = ''; root.appendChild(st); }
+  if (st.textContent !== css) { st.textContent = css; return true; }
+  return false;
+}
+
+// hui-root liegt oberhalb der Karte; die Seitenleiste in home-assistant-main
+function applyKiosk(on, from) {
+  const main = document.querySelector('home-assistant')?.shadowRoot?.querySelector('home-assistant-main');
+  const drawer = main?.shadowRoot?.querySelector('ha-drawer');
+  let root = null;
+  for (let n = from, i = 0; n && i < 60; i++) {
+    if (n.localName === 'hui-root') { root = n; break; }
+    n = n.parentNode || n.host;
+  }
+  if (!root) root = main?.shadowRoot?.querySelector('ha-panel-lovelace')?.shadowRoot?.querySelector('hui-root');
+  let changed = kioskStyle(drawer?.shadowRoot, on && KIOSK_CSS.drawer);
+  changed = kioskStyle(main?.shadowRoot, on && KIOSK_CSS.main) || changed;
+  changed = kioskStyle(root?.shadowRoot, on && KIOSK_CSS.root) || changed;
+  if (root) { if (on) root.style.setProperty('--header-height', '0px'); else root.style.removeProperty('--header-height'); }
+  // sections-Layout rechnet die Spalten neu
+  if (changed) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+}
+
 class GlassHomeNavCard extends HTMLElement {
   static getConfigElement() { return document.createElement('glass-home-nav-editor'); }
   static getStubConfig() { return { show_clock: true }; }
@@ -888,9 +944,21 @@ class GlassHomeNavCard extends HTMLElement {
     const first = !this._hass;
     this._hass = hass;
     if (first && this._config) this._render();
+    this._kiosk();
+  }
+
+  // Kiosk prüfen und anwenden; HA baut die Seitenleiste beim Laden neu, daher regelmäßig nachziehen
+  _kiosk() {
+    const on = !!this._hass && kioskWanted(this._hass, this._config?.kiosk);
+    if (!on && !this._kioskOn) return;
+    this._kioskOn = on;
+    applyKiosk(on, this);
   }
 
   connectedCallback() {
+    kioskUsers++;
+    this._kTick = setInterval(() => this._kiosk(), 2e3);
+    this._kiosk();
     this._onLoc = () => this._render();
     window.addEventListener('location-changed', this._onLoc);
     window.addEventListener('popstate', this._onLoc);
@@ -903,6 +971,10 @@ class GlassHomeNavCard extends HTMLElement {
     window.removeEventListener('location-changed', this._onLoc);
     window.removeEventListener('popstate', this._onLoc);
     clearInterval(this._tick);
+    clearInterval(this._kTick);
+    kioskUsers--;
+    // beim Ansichtswechsel kommt gleich die nächste Navigation; erst wenn keine mehr da ist, wieder einblenden
+    if (this._kioskOn) setTimeout(() => { if (kioskUsers <= 0) applyKiosk(false, null); }, 800);
   }
 
   getCardSize() { return 1; }
@@ -1838,7 +1910,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const statusKinds = ['lights', 'covers', 'climate', 'openings', 'locks'];
     const hasStatus = statusKinds.some((k) => summarize(hass, k));
     const full = { columns: 'full' };
-    const nav = { type: 'custom:glass-home-nav', grid_options: full };
+    const nav = { type: 'custom:glass-home-nav', grid_options: full, ...(c.kiosk ? { kiosk: c.kiosk } : {}) };
     const header = { type: 'custom:glass-home-header', grid_options: full, ...(c.name ? { name: c.name } : {}), ...(c.names ? { names: c.names } : {}) };
     const status = { type: 'custom:glass-home-status', grid_options: full };
     const roomCards = rooms.map((a) => ({ type: 'custom:glass-home-room', area: a.area_id, grid_options: { columns: 12 } }));
