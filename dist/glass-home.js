@@ -1967,6 +1967,8 @@ const GRID_STYLE = `
 `;
 
 class GlassHomeGridView extends HTMLElement {
+  // HA ruft setConfig mit der Ansichtskonfiguration auf, bevor es Karten setzt
+  setConfig(config) { this._config = config || {}; this._render(); }
   set hass(h) { this._hass = h; (this._cards || []).forEach((c) => { c.hass = h; }); }
   set lovelace(l) { this._lovelace = l; this._render(); }
   get lovelace() { return this._lovelace; }
@@ -1986,13 +1988,13 @@ class GlassHomeGridView extends HTMLElement {
 
   _cfg(i) {
     const card = this._cards[i];
-    return card?.config || this._lovelace?.config?.views?.[this._index]?.cards?.[i] || {};
+    return card?.config || this._config?.cards?.[i] || this._lovelace?.config?.views?.[this._index]?.cards?.[i] || {};
   }
 
   // Zeilenhöhe so, dass das Grundraster (10 Zeilen) genau den sichtbaren Bereich füllt
   _fit() {
     if (!this.isConnected) return;
-    const rows = Number(this._lovelace?.config?.views?.[this._index]?.rows) || 10;
+    const rows = Number(this._config?.rows ?? this._lovelace?.config?.views?.[this._index]?.rows) || 10;
     const top = Math.max(0, this.getBoundingClientRect().top + window.scrollY);
     const pad = 12, gap = 10;
     const avail = window.innerHeight - top - pad * 2 - gap * (rows - 1);

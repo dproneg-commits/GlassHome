@@ -78,7 +78,7 @@ const hass = {
   const cards = v.cards.map((cc) => { const el = document.createElement(cc.type.replace('custom:', 'hui-').startsWith('hui-glass') ? cc.type.slice(7) : 'div'); el.setConfig?.(cc); el.config = cc; return el; });
   const view = document.createElement('glass-home-grid');
   const host = document.getElementById('host'); host.lovelace = lovelace; host.appendChild(view);
-  view.hass = hass; view.lovelace = lovelace; view.index = 0; view.cards = cards; view.hass = hass;
+  view.setConfig(v); view.hass = hass; view.lovelace = lovelace; view.index = 0; view.cards = cards; view.hass = hass;
   window.__conf = conf; window.__view = view; window.__hass = hass;
 })();
 </script></body></html>
