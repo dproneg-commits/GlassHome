@@ -28,6 +28,7 @@ strategy:
   name: Familie Huber        # optional, Name in der Begrüßung für alle
   names:                     # optional, Begrüßung je Benutzer (sonst Vorname des Benutzers)
     viewer: Familie Huber
+  kiosk: [viewer]            # optional, ohne HA-Kopfzeile und Seitenleiste für diese Benutzer
   title: Zuhause             # optional
   hide_areas: [garage]       # optional, Bereichs-IDs ausblenden
   modules:                   # optional, Module abschalten
@@ -55,6 +56,16 @@ show_clock: true
 - Ohne `items` kommen die Einträge aus den Ansichten des Dashboards (Titel, Icon, Pfad). Unteransichten und versteckte Ansichten fehlen.
 - `module:` blendet einen Eintrag aus, wenn das Modul in dieser Installation nicht erkannt wird.
 - Am Handy nur Symbole, die aktive Seite mit Text.
+
+### Kiosk (Wandtablet)
+
+`kiosk:` in der Strategie oder in der Navigation blendet die HA-Kopfzeile und die Seitenleiste aus, solange das Dashboard offen ist:
+
+- `kiosk: [viewer]`: nur für diese Benutzer (angezeigter Name des Benutzers, Groß-/Kleinschreibung egal)
+- `kiosk: non_admin`: für alle ohne Adminrechte
+- `kiosk: true`: für alle
+
+In der Adresse schaltet `?kiosk` den Kiosk für diesen Browser-Tab ein und `?kiosk=0` wieder aus, zum Beispiel um am Tablet an die Einstellungen zu kommen.
 
 ## Status
 
