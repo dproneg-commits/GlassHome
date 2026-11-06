@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.8';
+const GH_VERSION = '0.8.10';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -2419,6 +2419,13 @@ const GRID_STYLE = `
   .c.edit{outline:1px dashed rgba(255,255,255,.25);outline-offset:2px;border-radius:var(--glass-home-radius,22px)}
   .ed button,.add{border:0;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1 system-ui;padding:7px 10px;cursor:pointer}
   .add{grid-column:span 12;padding:14px;border:1px dashed rgba(255,255,255,.3);background:rgba(255,255,255,.04);border-radius:16px}
+  .pg{grid-column:span 12;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .pg button,.pg input{height:40px;border-radius:12px;font:600 13px/1 system-ui;padding:0 14px}
+  .pg button{border:1px dashed rgba(255,255,255,.3);background:rgba(255,255,255,.04);color:#fff;cursor:pointer}
+  .pg button.pri{border-style:solid;background:rgba(255,183,77,.22);border-color:rgba(255,183,77,.5);color:#ffcf8a}
+  .pg button.dng{border-color:rgba(255,120,100,.5);color:#ffb3a6}
+  .pg input{flex:1;min-width:180px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:#fff;font-weight:500}
+  .pg small{color:rgba(255,255,255,.6);font:500 12px system-ui}
   /* Tablet hochkant: Flächen halb statt drittel breit */
   @media (max-width:1000px){ .c{grid-column:span var(--wm)} }
   /* Handy: untereinander, Höhe nach Inhalt (mindestens das Raster) */
@@ -2560,10 +2567,64 @@ class GlassHomeGridView extends HTMLElement {
       add.textContent = '+ Karte hinzufügen';
       add.addEventListener('click', () => this.dispatchEvent(new CustomEvent('ll-create-card', { detail: {}, bubbles: true, composed: true })));
       g.appendChild(add);
+      const pg = document.createElement('div');
+      pg.className = 'pg';
+      g.appendChild(pg);
+      this._pages(pg);
     }
     requestAnimationFrame(() => this._fit());
   }
+
+  // Seiten anlegen, umbenennen, löschen (im Bearbeiten-Modus); neue Seiten bekommen nur die Navigation
+  _pages(box, mode) {
+    const l = this._lovelace, views = l?.config?.views || [], cur = views[this._index] || {};
+    if (!mode) {
+      box.innerHTML = `<button data-a="new">+ Neue Seite</button><button data-a="ren">Seite umbenennen</button>${views.length > 1 ? '<button data-a="del" class="dng">Seite löschen</button>' : ''}`;
+    } else if (mode === 'del') {
+      box.innerHTML = `<small>Seite „${esc(cur.title || cur.path || '')}“ mit allen Karten löschen?</small><button data-a="delok" class="dng">Ja, löschen</button><button data-a="x">Abbrechen</button>`;
+    } else {
+      box.innerHTML = `<input placeholder="${mode === 'new' ? 'Name der neuen Seite, z. B. Garten' : 'Neuer Name'}" value="${mode === 'ren' ? esc(cur.title || '') : ''}"><button data-a="${mode}ok" class="pri">${mode === 'new' ? 'Anlegen' : 'Speichern'}</button><button data-a="x">Abbrechen</button>`;
+      const inp = box.querySelector('input');
+      inp.focus();
+      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') box.querySelector('.pri').click(); if (ev.key === 'Escape') this._pages(box); });
+    }
+    box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      const a = b.dataset.a, name = box.querySelector('input')?.value.trim();
+      if (a === 'new' || a === 'ren' || a === 'del') return this._pages(box, a);
+      if (a === 'x') return this._pages(box);
+      if ((a === 'newok' || a === 'renok') && !name) return box.querySelector('input').focus();
+      this._savePages(a, name);
+    }));
+  }
+
+  _savePages(a, name) {
+    const l = this._lovelace;
+    if (!l?.config?.views || typeof l.saveConfig !== 'function') return;
+    const views = l.config.views.slice(), i = this._index, cur = views[i] || {};
+    const base = '/' + (location.pathname.split('/').filter(Boolean)[0] || 'lovelace');
+    const go = (path) => { history.pushState(null, '', `${base}/${path}`); window.dispatchEvent(new CustomEvent('location-changed', { detail: { replace: false } })); };
+    if (a === 'newok') {
+      const slug = name.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'seite';
+      let path = slug, n = 2;
+      while (views.some((v) => v.path === path)) path = `${slug}-${n++}`;
+      // Navigation der aktuellen Seite übernehmen (mit Kiosk usw.), sonst eine neue
+      const nav = (cur.cards || []).find((c) => c.type === 'custom:glass-home-nav') || { type: 'custom:glass-home-nav' };
+      views.push({ title: name, path, ...(cur.theme ? { theme: cur.theme } : {}), type: 'custom:glass-home-grid',
+        cards: [{ ...nav, grid_options: { columns: 12, rows: 1 } }] });
+      l.saveConfig({ ...l.config, views }).then?.(() => go(path));
+      return;
+    }
+    if (a === 'renok') { views[i] = { ...cur, title: name }; l.saveConfig({ ...l.config, views }); return; }
+    if (a === 'delok' && views.length > 1) {
+      // erst auf eine andere Seite wechseln, dann löschen (sonst rendert HA noch die gelöschte Ansicht)
+      const to = i === 0 ? 1 : 0;
+      go(views[to].path ?? to);
+      views.splice(i, 1);
+      setTimeout(() => l.saveConfig({ ...l.config, views }), 300);
+    }
+  }
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Dashboard-Strategie: baut alle Seiten aus den erkannten Modulen     */
