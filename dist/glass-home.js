@@ -1956,6 +1956,100 @@ class GlassHomeAgendaEditor extends GlassHomeFormEditor {
 }
 
 /* ------------------------------------------------------------------ */
+/* Räume-Liste: alle Bereiche untereinander, Temperatur, Feuchte,     */
+/* Licht. Tippen öffnet die Raumübersicht. Für Flächen 4 x 6.          */
+/* ------------------------------------------------------------------ */
+const ROOMS_STYLE = `
+  .card{padding:14px 14px 10px;display:flex;flex-direction:column;height:100%;overflow:auto}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin:0 2px 10px}
+  .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
+  .ls{display:flex;flex-direction:column;gap:8px;flex:1}
+  .r{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:4px 10px;padding:9px 12px;border-radius:14px;cursor:pointer;
+     background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);flex:1;min-height:52px;max-height:84px}
+  .r:active{transform:scale(.99)}
+  .r.on{border-color:rgba(var(--gh-lit),.45)}
+  .r.warn{border-color:rgba(255,183,77,.6)}
+  .r .ic{grid-row:1/3;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(255,255,255,.07);color:var(--gh-mute)}
+  .r.on .ic{background:rgba(var(--gh-lit),.18);color:rgb(var(--gh-lit))}
+  .r b{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r small{grid-column:2;font-size:12px;color:var(--gh-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r.warn small{color:var(--gh-warn)}
+  .r .t{grid-row:1/3;grid-column:3;text-align:right;font-size:20px;font-weight:300;line-height:1.1}
+  .r .t em{display:block;font-style:normal;font-size:11.5px;color:var(--gh-mute)}
+  .msg{font-size:13px;color:var(--gh-mute)}
+`;
+
+class GlassHomeRoomsCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-rooms-editor'); }
+  static getStubConfig() { return {}; }
+
+  setConfig(config) { this._config = { ...(config || {}) }; this._sig = ''; if (this._hass) this._render(); }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._popup) this._popup.hass = hass;
+    if (!this._config) return;
+    const sig = this._rooms().map((r) => JSON.stringify(r)).join(';');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._render();
+  }
+
+  getCardSize() { return 6; }
+  getGridOptions() { return { columns: 6, min_columns: 4 }; }
+
+  _rooms() {
+    const h = this._hass, c = this._config, hide = new Set(c.hide_areas || []);
+    const ids = c.areas?.length ? c.areas : Object.values(h.areas || {}).sort((a, b) => a.name.localeCompare(b.name, 'de')).map((a) => a.area_id);
+    return ids.filter((id) => h.areas?.[id] && !hide.has(id)).map((id) => {
+      const e = areaEntities(h, id), name = h.areas[id].name;
+      const num = (list) => avg(list.map((x) => parseFloat(h.states[x].state)).filter((v) => !isNaN(v)));
+      const temp = e.temps.length ? num(e.temps) : avg(e.climates.map((x) => h.states[x].attributes.current_temperature).filter((v) => v != null));
+      const hum = num(e.hums);
+      const on = e.lights.filter((x) => h.states[x].state === 'on');
+      const open = e.openings.filter((x) => h.states[x].state === 'on');
+      const parts = [];
+      if (open.length) parts.push(open.length === 1 ? (h.states[open[0]].attributes.friendly_name || 'Fenster') + ' offen' : `${open.length} Fenster offen`);
+      if (e.lights.length) parts.push(on.length ? (on.length === 1 ? 'Licht an' : `${on.length} Lichter an`) : 'Licht aus');
+      if (e.covers.length) { const cl = coverClosed(h, e.covers); parts.push(cl >= 100 ? 'Rollo zu' : cl <= 0 ? 'Rollo offen' : `Rollo ${cl} % zu`); }
+      return { id, name, temp, hum, on: on.length > 0, warn: open.length > 0, sub: parts.join(' · '), any: e.lights.length + e.covers.length + e.temps.length + e.climates.length + e.openings.length };
+    }).filter((r) => r.any);
+  }
+
+  _render() {
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const rooms = this._rooms();
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${ROOMS_STYLE}</style><div class="card p">
+      <div class="hd">${icon('home', 18)}${esc(this._config.title || 'Räume')}<small>${rooms.length}</small></div>
+      <div class="ls">${rooms.length ? rooms.map((r) => `<div class="r ${r.on ? 'on' : ''} ${r.warn ? 'warn' : ''}" data-a="${esc(r.id)}">
+        <span class="ic">${icon(roomIcon(r.name), 18)}</span><b>${esc(r.name)}</b>
+        <span class="t">${r.temp != null ? `${fmt(r.temp)}°` : '–'}${r.hum != null ? `<em>${Math.round(r.hum)} %</em>` : ''}</span>
+        <small>${esc(r.sub)}</small></div>`).join('') : '<div class="msg">Keine Räume mit Geräten gefunden.</div>'}</div></div>`;
+    this.shadowRoot.querySelectorAll('.r').forEach((el) => el.addEventListener('click', () => this._open(el.dataset.a)));
+  }
+
+  _open(area) {
+    document.querySelector('glass-home-popup')?.close();
+    const pop = document.createElement('glass-home-popup');
+    pop.kind = 'room';
+    pop.area = area;
+    document.body.appendChild(pop);
+    pop.hass = this._hass;
+    this._popup = pop;
+    pop.onclose = () => { if (this._popup === pop) this._popup = null; };
+  }
+}
+
+class GlassHomeRoomsEditor extends GlassHomeFormEditor {
+  static schema = [
+    { name: 'title', selector: { text: {} } },
+    { name: 'areas', selector: { area: { multiple: true } } },
+  ];
+  static labels = { title: 'Titel (leer = Räume)', areas: 'Räume (leer = alle mit Geräten)' };
+  static defaults = {};
+}
+
+/* ------------------------------------------------------------------ */
 /* Glass-Raster: eigene Ansicht mit festem 12-Spalten-Raster           */
 /* type: custom:glass-home-grid; Karten: grid_options {columns, rows}  */
 /* Standard: Kopf 12x1, Begrüßung 9x2 + Wetter 3x2, Status 12x1,       */
@@ -2107,7 +2201,10 @@ class GlassHomeDashboardStrategy extends HTMLElement {
       const areas = [];
       if (mods.todo || mods.calendar) areas.push(gc(agenda, 4, 3));
       if (mods.energy) areas.push(gc(energy, roomCards.length ? 4 : 8, 6));
-      areas.push(...roomCards.map((r) => gc(r, 4, 3)));
+      // passen die Räume nicht in die 6 Flächen, kommt die Räume-Liste (4 x 6) statt einzelner Raumkarten
+      const used = areas.reduce((n, a) => n + (a.grid_options.columns / 4) * (a.grid_options.rows / 3), 0) + (mods.waste ? 1 : 0);
+      if (roomCards.length && used + roomCards.length > 6) areas.push(gc({ type: 'custom:glass-home-rooms', ...(c.hide_areas ? { hide_areas: c.hide_areas } : {}) }, 4, 6));
+      else areas.push(...roomCards.map((r) => gc(r, 4, 3)));
       if (mods.waste) areas.push(gc(waste, 4, 3));
       if (!areas.length) areas.push(gc(empty, 12, 2));
       const gview = (title, path, icon, list) => ({ title, path, icon, type: 'custom:glass-home-grid', cards: list });
@@ -2163,6 +2260,8 @@ if (!customElements.get('glass-home-waste')) customElements.define('glass-home-w
 if (!customElements.get('glass-home-waste-editor')) customElements.define('glass-home-waste-editor', GlassHomeWasteEditor);
 if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-agenda', GlassHomeAgendaCard);
 if (!customElements.get('glass-home-agenda-editor')) customElements.define('glass-home-agenda-editor', GlassHomeAgendaEditor);
+if (!customElements.get('glass-home-rooms')) customElements.define('glass-home-rooms', GlassHomeRoomsCard);
+if (!customElements.get('glass-home-rooms-editor')) customElements.define('glass-home-rooms-editor', GlassHomeRoomsEditor);
 if (!customElements.get('glass-home-grid')) customElements.define('glass-home-grid', GlassHomeGridView);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
@@ -2175,6 +2274,7 @@ for (const card of [
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
   { type: 'glass-home-scenes', name: 'Glass Home – Szenen', description: 'Szenen und Skripte als Kacheln, dazu „Alles aus“.' },
+  { type: 'glass-home-rooms', name: 'Glass Home – Räume-Liste', description: 'Alle Räume untereinander mit Temperatur, Feuchte und Licht. Tippen öffnet die Raumübersicht.' },
   { type: 'glass-home-room', name: 'Glass Home – Raum', description: 'Ein Bereich mit Temperatur, Licht- und Rollo-Regler. Geräte kommen automatisch aus dem Bereich.' },
 ]) {
   if (!window.customCards.some((c) => c.type === card.type)) window.customCards.push({ ...card, preview: true });
