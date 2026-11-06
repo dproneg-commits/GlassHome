@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.2';
+const GH_VERSION = '0.8.3';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1082,8 +1082,10 @@ const OPENING_CLASSES = ['door', 'window', 'opening', 'garage_door'];
 const NON_BLIND_COVERS = ['garage', 'gate', 'door'];
 
 // Alle sichtbaren Entitäten einer Art, nach Bereich gruppiert (Bereiche alphabetisch, ohne Bereich zuletzt)
-function collect(hass, kind) {
-  const pick = {
+function collect(hass, kind, list) {
+  // feste Auswahl aus der Kartenkonfiguration (z.B. plugs: [...]): genau diese, nach Bereich gruppiert
+  const fixed = Array.isArray(list) ? new Set(list.filter((id) => hass.states[id])) : null;
+  const pick = fixed ? (id) => fixed.has(id) : {
     lights: (id) => id.startsWith('light.'),
     covers: (id) => id.startsWith('cover.') && !NON_BLIND_COVERS.includes(hass.states[id].attributes.device_class),
     climate: (id) => id.startsWith('climate.') || (id.startsWith('sensor.') && ['temperature', 'humidity'].includes(hass.states[id].attributes.device_class)),
@@ -1095,12 +1097,13 @@ function collect(hass, kind) {
       || /steckdose|plug|outlet|socket/i.test(id + ' ' + (hass.states[id].attributes.friendly_name || ''))),
     presence: (id) => id.startsWith('person.'),
   }[kind];
+  const ids = fixed ? [...fixed] : Object.keys(hass.states);
   const groups = new Map();
-  for (const id of Object.keys(hass.states)) {
-    if (!visible(hass, id) || !pick(id)) continue;
+  for (const id of ids) {
+    if ((!fixed && !visible(hass, id)) || !pick(id)) continue;
     // Temperaturen ohne Bereich (z.B. Außenfühler, Demo-Werte) gehören nicht in die Innenübersicht
     const area = entityArea(hass, id);
-    if (kind === 'climate' && !area) continue;
+    if (kind === 'climate' && !area && !fixed) continue;
     if (!groups.has(area)) groups.set(area, []);
     groups.get(area).push(id);
   }
@@ -1119,8 +1122,8 @@ const isOpen = (hass, id) => {
 function avg(list) { return list.length ? list.reduce((a, b) => a + b, 0) / list.length : null; }
 
 // Kurzwerte für Kachel und Popup-Kopf
-function summarize(hass, kind) {
-  const g = collect(hass, kind), ids = g.flatMap((x) => x.ids);
+function summarize(hass, kind, list) {
+  const g = collect(hass, kind, list), ids = g.flatMap((x) => x.ids);
   if (!ids.length) return null;
   const st = (id) => hass.states[id];
   switch (kind) {
@@ -1135,7 +1138,8 @@ function summarize(hass, kind) {
     case 'climate': {
       const t = avg(ids.filter((id) => id.startsWith('sensor.') && st(id).attributes.device_class === 'temperature').map((id) => parseFloat(st(id).state)).filter((v) => !isNaN(v)));
       const tc = avg(ids.filter((id) => id.startsWith('climate.')).map((id) => st(id).attributes.current_temperature).filter((v) => v != null));
-      const v = t ?? tc;
+      // feste Auswahl: alle gewählten Fühler und Thermostate zusammen
+      const v = list ? avg(ids.map((id) => tempOf(hass, id)).filter((x) => x != null)) : t ?? tc;
       if (v == null) return null;
       return { value: `${fmt(v)}°`, label: 'Ø Innen', icon: 'temp', color: '95,214,142' };
     }
@@ -1160,6 +1164,47 @@ function summarize(hass, kind) {
     }
   }
   return null;
+}
+
+// Leere Kachel zum Einrichten (nur Steckdosen und Temperatur, die man selbst zusammenstellt)
+const EDIT_KINDS = ['plugs', 'climate'];
+const emptyTile = (kind) => (kind === 'plugs'
+  ? { value: 'Keine', label: 'Steckdosen · antippen', icon: 'plug', color: '77,208,225', empty: true }
+  : { value: '–', label: 'Temperatur · antippen', icon: 'temp', color: '95,214,142', empty: true });
+
+// Kandidaten zum Hinzufügen im Popup
+function candidates(hass, kind) {
+  const name = (id) => hass.states[id].attributes.friendly_name || id;
+  const ok = kind === 'plugs'
+    ? (id) => id.startsWith('switch.')
+    : (id) => id.startsWith('climate.') || (id.startsWith('sensor.') && hass.states[id].attributes.device_class === 'temperature');
+  return Object.keys(hass.states).filter((id) => ok(id) && visible(hass, id))
+    .map((id) => {
+      const a = entityArea(hass, id);
+      return { id, label: name(id) + (a ? ` · ${hass.areas?.[a]?.name || a}` : '') };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'de'));
+}
+
+// Temperaturkarte im Dashboard: ihre Fühler gelten auch für die Statuskachel
+const GH_SHARED = { temp: null };
+const setSharedTemp = (v) => { GH_SHARED.temp = v; window.dispatchEvent(new CustomEvent('gh-temps')); };
+
+// Beim Speichern baut HA die Karten neu; das offene Popup bleibt und geht an die neue Karte über
+function adoptPopup(card, type) {
+  const o = GH_SHARED.open;
+  if (!o || o.type !== type || card._popup || !o.pop.isConnected) return;
+  GH_SHARED.open = null;
+  card._popup = o.pop;
+  o.rebind(card);
+  o.pop.onclose = () => { if (card._popup === o.pop) card._popup = null; };
+}
+
+// Kartenkonfiguration speichern lassen (übernimmt die Glass-Rasteransicht)
+function saveCard(el, detail) {
+  const d = { ...detail, handled: false };
+  el.dispatchEvent(new CustomEvent('gh-save-card', { detail: d, bubbles: true, composed: true }));
+  return d.handled;
 }
 
 const KIND_TITLE = { lights: 'Lichter', covers: 'Rollos', climate: 'Temperaturen', openings: 'Fenster & Türen', locks: 'Schlösser', plugs: 'Steckdosen', presence: 'Wer ist zuhause' };
@@ -1194,25 +1239,72 @@ class GlassHomeStatusCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    adoptPopup(this, 'status');
     if (this._popup) this._popup.hass = hass;
     if (!this._config) return;
-    const sig = this._tiles().map((t) => JSON.stringify(summarize(hass, t.type))).join(';');
+    const sig = this._tiles().map((t) => JSON.stringify(this._sum(t.type))).join(';');
     if (sig === this._sig) return;
     this._sig = sig;
     this._render();
   }
 
-  disconnectedCallback() { this._popup?.close(); }
+  connectedCallback() {
+    this._onTemps = () => { this._sig = ''; if (this._hass) this.hass = this._hass; };
+    window.addEventListener('gh-temps', this._onTemps);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('gh-temps', this._onTemps);
+    if (this._popup && this._saving) {
+      const pop = this._popup, kind = pop.kind;
+      GH_SHARED.open = { type: 'status', pop, rebind: (c) => { pop.onedit = (ids) => c._saveList(kind, ids); } };
+      return;
+    }
+    this._popup?.close();
+  }
 
   getCardSize() { return 1; }
   getGridOptions() { return { columns: 'full' }; }
+
+  // feste Auswahl: Steckdosen aus plugs, Temperatur aus der Temperaturkarte oder temps
+  _list(kind) {
+    if (kind === 'plugs') return this._config.plugs;
+    if (kind === 'climate') {
+      const t = GH_SHARED.temp;
+      if (t) return Array.isArray(t.ids) ? t.ids : t.owner?._hass ? t.owner._ids() : undefined;
+      return this._config.temps;
+    }
+    return undefined;
+  }
+
+  _canEdit() { return !!this._hass?.user?.is_admin; }
+
+  _sum(kind) {
+    const s = summarize(this._hass, kind, this._list(kind));
+    if (s || !EDIT_KINDS.includes(kind)) return s;
+    // leer: Admins sehen die Kachel zum Einrichten, sonst nur wenn ausdrücklich gewählt
+    const chosen = this._config.tiles?.some((t) => (typeof t === 'string' ? t : t.type) === kind);
+    return chosen || this._canEdit() ? emptyTile(kind) : null;
+  }
+
+  _saveList(kind, ids) {
+    this._saving = true;
+    setTimeout(() => { this._saving = false; }, 3000);
+    if (kind === 'climate' && GH_SHARED.temp) {
+      GH_SHARED.temp.ids = ids;
+      return saveCard(this, { type: 'custom:glass-home-temperature', patch: { entities: ids } });
+    }
+    const key = kind === 'plugs' ? 'plugs' : 'temps';
+    this._config = { ...this._config, [key]: ids };
+    return saveCard(this, { self: true, patch: { [key]: ids } });
+  }
 
   // Kacheln: aus der Konfiguration (Text oder {type, navigate, name}), sonst alle erkannten
   _tiles() {
     const list = (this._config.tiles?.length ? this._config.tiles : ALL_KINDS)
       .map((t) => (typeof t === 'string' ? { type: t } : t))
       .filter((t) => ALL_KINDS.includes(t.type));
-    return list.filter((t) => summarize(this._hass, t.type));
+    return list.filter((t) => this._sum(t.type));
   }
 
   _render() {
@@ -1220,8 +1312,8 @@ class GlassHomeStatusCard extends HTMLElement {
     const tiles = this._tiles();
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${STATUS_STYLE}</style>
       <div class="row" style="--n:${Math.max(4, tiles.length)}">${tiles.map((t, i) => {
-        const s = summarize(this._hass, t.type);
-        return `<div class="tile p ${s.warn ? 'warn' : ''} ${s.hot || s.warn || t.type === 'climate' || t.type === 'locks' ? '' : 'off'}" data-i="${i}" style="--c:${s.color}">
+        const s = this._sum(t.type);
+        return `<div class="tile p ${s.warn ? 'warn' : ''} ${!s.empty && (s.hot || s.warn || t.type === 'climate' || t.type === 'locks') ? '' : 'off'}" data-i="${i}" style="--c:${s.color}">
           <span class="ic">${icon(s.icon, 20)}</span><div><b>${esc(s.value)}</b><small>${esc(t.name || s.label)}</small></div></div>`;
       }).join('')}</div>`;
     this.shadowRoot.querySelectorAll('.tile').forEach((el) => el.addEventListener('click', () => {
@@ -1239,6 +1331,8 @@ class GlassHomeStatusCard extends HTMLElement {
     this._popup?.close();
     const pop = document.createElement('glass-home-popup');
     pop.kind = kind;
+    pop.list = this._list(kind);
+    if (EDIT_KINDS.includes(kind) && this._canEdit()) pop.onedit = (ids) => this._saveList(kind, ids);
     pop.onclose = () => { if (this._popup === pop) this._popup = null; };
     document.body.appendChild(pop);
     pop.hass = this._hass;
@@ -1270,6 +1364,12 @@ const POPUP_STYLE = `
   .ln.tap{cursor:pointer}
   .big{font-size:20px;font-weight:300}
   .cell{display:contents}
+  .ln button.xrm{width:32px;padding:0;flex:none;background:rgba(255,255,255,.06);color:var(--gh-mute)}
+  .addr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 18px 18px;font-size:13px;color:var(--gh-mute)}
+  .addr select{flex:1;min-width:180px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:var(--gh-txt);font:inherit;font-size:14px;padding:0 10px}
+  .addr select option{background:#22262b;color:#eef1f4}
+  .addr button{height:40px;padding:0 16px;border-radius:12px;border:0;background:rgba(255,183,77,.22);color:#ffcf8a;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .addr .warnm{color:var(--gh-warn);width:100%}
   .sl span.n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   @keyframes fade{from{opacity:0}}
   @keyframes up{from{transform:translateY(16px);opacity:0}}
@@ -1284,7 +1384,7 @@ class GlassHomePopup extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (this._dragging) return;
-    const g = this.kind === 'room' ? this._roomGroups(hass) : collect(hass, this.kind);
+    const g = this.kind === 'room' ? this._roomGroups(hass) : collect(hass, this.kind, this.list);
     const sig = g.flatMap((x) => x.ids).map((id) => {
       const s = hass.states[id];
       return `${id}|${s?.state}|${s?.attributes.brightness}|${s?.attributes.current_position}|${s?.attributes.current_temperature}`;
@@ -1360,8 +1460,26 @@ class GlassHomePopup extends HTMLElement {
     return '';
   }
 
+  _rowE(id, area, k) {
+    const html = this._row(id, area, k);
+    if (!this.onedit || !html) return html;
+    return html.replace(/<\/div>\s*$/, `<button class="xrm" data-rm="${id}" title="Entfernen">✕</button></div>`);
+  }
+
+  _setList(ids) {
+    this.list = ids;
+    const ok = this.onedit?.(ids);
+    this._saveMsg = ok === false ? 'Speichern geht nur im Glass-Raster.' : '';
+    this._sig = '';
+    this.hass = this._hass;
+  }
+
   _bindRow(box) {
     const h = () => this._hass;
+    box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this._setList(this._all.filter((x) => x !== b.dataset.rm));
+    }));
     box.querySelectorAll('.sl').forEach((el) => bindSlider(el, this, h, [el.dataset.id]));
     box.querySelectorAll('[data-mi]').forEach((el) => el.addEventListener('click', () => {
       this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: el.dataset.mi }, bubbles: true, composed: true }));
@@ -1387,6 +1505,7 @@ class GlassHomePopup extends HTMLElement {
           <div class="top"><div><h2>${esc(k === 'room' ? h.areas?.[this.area]?.name || this.area : KIND_TITLE[k])}</h2><small class="sum"></small></div><button class="x" aria-label="Schließen">✕</button></div>
           ${acts ? `<div class="acts">${acts}</div>` : ''}
           <div class="body"></div>
+          <div class="addb"></div>
         </div>`;
       this.shadowRoot.querySelector('.bg').addEventListener('click', () => this.close());
       this.shadowRoot.querySelector('.x').addEventListener('click', () => this.close());
@@ -1415,22 +1534,160 @@ class GlassHomePopup extends HTMLElement {
         const gk = g.kind || k, trim = g.room || g.name;
         if (gk === 'openings') ids = [...ids].sort((a, b) => isOpen(h, b) - isOpen(h, a));
         return `<div class="grp"><h3>${esc(g.name)}</h3>${ids.map((id) => {
-          this._rows[id] = this._row(id, trim, gk);
+          this._rows[id] = this._rowE(id, trim, gk);
           return `<div class="cell" data-row="${id}" data-area="${esc(trim)}" data-kind="${gk}">${this._rows[id]}</div>`;
         }).join('')}</div>`;
-      }).join('') || '<span style="color:var(--gh-dim)">Keine Geräte gefunden</span>';
+      }).join('') || `<span style="color:var(--gh-dim)">${this.onedit ? 'Noch nichts ausgewählt. Unten hinzufügen.' : 'Keine Geräte gefunden'}</span>`;
       bodyEl.querySelectorAll('.cell').forEach((c) => this._bindRow(c));
+      this._renderAdd();
       return;
     }
     // Nur geänderte Zeilen ersetzen
     bodyEl.querySelectorAll('.cell').forEach((c) => {
-      const html = this._row(c.dataset.row, c.dataset.area, c.dataset.kind);
+      const html = this._rowE(c.dataset.row, c.dataset.area, c.dataset.kind);
       if (html === this._rows[c.dataset.row]) return;
       this._rows[c.dataset.row] = html;
       c.innerHTML = html;
       this._bindRow(c);
     });
   }
+}
+
+// Popup: Auswahl zum Hinzufügen (Steckdosen, Temperaturfühler)
+GlassHomePopup.prototype._renderAdd = function () {
+  const box = this.shadowRoot.querySelector('.addb');
+  if (!box) return;
+  if (!this.onedit) { box.innerHTML = ''; return; }
+  const have = new Set(this._all);
+  const opts = candidates(this._hass, this.kind).filter((c) => !have.has(c.id));
+  const what = this.kind === 'plugs' ? 'Steckdose' : 'Temperaturfühler';
+  box.innerHTML = `<div class="addr">${opts.length
+    ? `<select><option value="">${what} hinzufügen …</option>${opts.map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join('')}</select><button>Hinzufügen</button>`
+    : `<span>${this.kind === 'plugs' ? 'Keine (weiteren) Schalter in HA gefunden. Zuerst die Steckdose in HA koppeln.' : 'Keine (weiteren) Temperaturfühler in HA gefunden.'}</span>`}
+    ${this._saveMsg ? `<span class="warnm">${esc(this._saveMsg)}</span>` : ''}</div>`;
+  const sel = box.querySelector('select');
+  box.querySelector('button')?.addEventListener('click', () => { if (sel.value) this._setList([...this._all, sel.value]); });
+};
+
+/* ------------------------------------------------------------------ */
+/* Temperatur: selbst gewählte Fühler mit Durchschnitt                 */
+/* ------------------------------------------------------------------ */
+const TEMP_STYLE = `
+  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;overflow:auto}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:8px}
+  .hd button{margin-left:auto;height:30px;padding:0 12px;border-radius:10px;border:0;background:rgba(255,255,255,.08);color:var(--gh-txt);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+  .av{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
+  .av b{font-size:34px;font-weight:300;line-height:1}
+  .av small{color:var(--gh-mute);font-size:12.5px}
+  .tl{display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;cursor:pointer}
+  .tl:last-child{border-bottom:0}
+  .tl span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tl small{color:var(--gh-mute);font-size:12px}
+  .tl b{font-weight:600;white-space:nowrap}
+  .msg{font-size:13px;color:var(--gh-mute);line-height:1.45}
+`;
+
+const tempOf = (hass, id) => {
+  const st = hass.states[id];
+  if (!st) return null;
+  const v = id.startsWith('climate.') ? st.attributes.current_temperature : parseFloat(st.state);
+  return v == null || isNaN(v) ? null : Number(v);
+};
+
+class GlassHomeTemperatureCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-temperature-editor'); }
+  static getStubConfig() { return {}; }
+
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this._sig = '';
+    if (this.isConnected) setSharedTemp({ ids: this._config.entities, owner: this });
+    if (this._hass) this._render();
+  }
+
+  connectedCallback() { if (this._config) setSharedTemp({ ids: this._config.entities, owner: this }); }
+  disconnectedCallback() {
+    if (GH_SHARED.temp?.owner === this) setSharedTemp(null);
+    if (this._popup && this._saving) {
+      const pop = this._popup;
+      GH_SHARED.open = { type: 'temperature', pop, rebind: (c) => { pop.onedit = (ids) => c._edit(ids); } };
+      return;
+    }
+    this._popup?.close();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    adoptPopup(this, 'temperature');
+    if (this._popup) this._popup.hass = hass;
+    if (!this._config) return;
+    const sig = this._ids().map((id) => `${id}|${tempOf(hass, id)}`).join(';');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._render();
+  }
+
+  getCardSize() { return 4; }
+  getGridOptions() { return { columns: 4, rows: 3 }; }
+
+  // gewählte Fühler, sonst alle Innen-Temperaturen (mit Bereich)
+  _ids() {
+    if (Array.isArray(this._config.entities)) return this._config.entities.filter((id) => this._hass.states[id]);
+    return collect(this._hass, 'climate').flatMap((g) => g.ids)
+      .filter((id) => id.startsWith('climate.') || this._hass.states[id].attributes.device_class === 'temperature');
+  }
+
+  _render() {
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const h = this._hass, ids = this._ids();
+    const vals = ids.map((id) => tempOf(h, id)).filter((v) => v != null);
+    const a = avg(vals);
+    const admin = !!h.user?.is_admin;
+    const name = (id) => h.entities?.[id]?.name || h.states[id].attributes.friendly_name || id;
+    const area = (id) => { const ar = entityArea(h, id); return ar ? h.areas?.[ar]?.name || ar : ''; };
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${TEMP_STYLE}</style>
+      <div class="card p">
+        <div class="hd">${icon('temp', 18)}<span>${esc(this._config.name || 'Temperatur')}</span>${admin ? '<button class="ed">Fühler wählen</button>' : ''}</div>
+        ${ids.length ? `<div class="av"><b>${a != null ? fmt(a) + '°' : '–'}</b><small>Ø aus ${vals.length} ${vals.length === 1 ? 'Fühler' : 'Fühlern'}</small></div>
+          ${ids.map((id) => { const v = tempOf(h, id); return `<div class="tl" data-id="${esc(id)}"><span>${esc(name(id))} <small>${esc(area(id))}</small></span><b>${v != null ? fmt(v) + '°' : '–'}</b></div>`; }).join('')}`
+          : `<div class="msg">Noch keine Temperaturfühler. ${admin ? '„Fühler wählen“ antippen.' : ''}</div>`}
+      </div>`;
+    this.shadowRoot.querySelectorAll('.tl').forEach((el) => el.addEventListener('click', () => {
+      this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: el.dataset.id }, bubbles: true, composed: true }));
+    }));
+    this.shadowRoot.querySelector('.ed')?.addEventListener('click', () => this._open());
+  }
+
+  _open() {
+    this._popup?.close();
+    const pop = document.createElement('glass-home-popup');
+    pop.kind = 'climate';
+    pop.list = this._ids();
+    pop.onedit = (ids) => this._edit(ids);
+    pop.onclose = () => { if (this._popup === pop) this._popup = null; };
+    document.body.appendChild(pop);
+    pop.hass = this._hass;
+    this._popup = pop;
+  }
+}
+
+GlassHomeTemperatureCard.prototype._edit = function (ids) {
+  this._config = { ...this._config, entities: ids };
+  setSharedTemp({ ids, owner: this });
+  this._sig = '';
+  this.hass = this._hass;
+  this._saving = true;
+  setTimeout(() => { this._saving = false; }, 3000);
+  return saveCard(this, { self: true, patch: { entities: ids } });
+};
+
+class GlassHomeTemperatureEditor extends GlassHomeFormEditor {
+  static schema = [
+    { name: 'name', selector: { text: {} } },
+    { name: 'entities', selector: { entity: { multiple: true, filter: [{ domain: 'sensor', device_class: 'temperature' }, { domain: 'climate' }] } } },
+  ];
+  static labels = { name: 'Titel (Standard: Temperatur)', entities: 'Temperaturfühler (leer = alle mit Bereich)' };
+  static defaults = {};
 }
 
 class GlassHomeStatusEditor extends GlassHomeFormEditor {
@@ -1446,8 +1703,10 @@ class GlassHomeStatusEditor extends GlassHomeFormEditor {
         },
       },
     },
+    { name: 'plugs', selector: { entity: { multiple: true, filter: { domain: 'switch' } } } },
+    { name: 'temps', selector: { entity: { multiple: true, filter: [{ domain: 'sensor', device_class: 'temperature' }, { domain: 'climate' }] } } },
   ];
-  static labels = { tiles: 'Kacheln (keine Auswahl = alle, die es gibt)' };
+  static labels = { tiles: 'Kacheln (keine Auswahl = alle, die es gibt)', plugs: 'Steckdosen (leer = automatisch erkennen)', temps: 'Temperaturfühler (nur ohne Temperaturkarte)' };
   static defaults = {};
 }
 
@@ -2145,16 +2404,44 @@ class GlassHomeGridView extends HTMLElement {
   }
 
   // Größe ändern oder verschieben: Ansicht in der Dashboard-Konfiguration anpassen und speichern
-  _change(i, a, w, h) {
+  _saveCards(fn) {
     const l = this._lovelace;
-    if (!l?.config?.views || typeof l.saveConfig !== 'function') return;
+    if (!l?.config?.views || typeof l.saveConfig !== 'function') return false;
     const views = l.config.views.slice();
     const view = { ...views[this._index] };
     const cards = (view.cards || []).slice();
-    if (!cards[i]) return;
+    if (fn(cards) === false) return false;
+    view.cards = cards;
+    views[this._index] = view;
+    l.saveConfig({ ...l.config, views });
+    return true;
+  }
+
+  // Karten speichern eigene Einstellungen (z.B. Steckdosenauswahl) über das Ereignis gh-save-card
+  _onSave(ev, g) {
+    const d = ev.detail || {};
+    ev.stopPropagation();
+    d.handled = this._saveCards((cards) => {
+      let i = -1;
+      if (d.self) {
+        const cell = ev.composedPath().find((n) => n.parentNode === g && n.classList?.contains('c'));
+        i = cell ? [...g.children].indexOf(cell) : -1;
+      } else if (d.type) i = cards.findIndex((c) => c.type === d.type);
+      if (i < 0 || !cards[i]) return false;
+      cards[i] = { ...cards[i], ...d.patch };
+      return true;
+    });
+  }
+
+  _change(i, a, w, h) {
+    this._saveCards((cards) => this._resize(cards, i, a, w, h));
+  }
+
+  _resize(cards, i, a, w, h) {
+    if (!cards[i]) return false;
     if (a === 'up' || a === 'down') {
       const j = a === 'up' ? i - 1 : i + 1;
-      if (j < 0 || j >= cards.length) return;
+      if (j < 0 || j >= cards.length) return false;
       [cards[i], cards[j]] = [cards[j], cards[i]];
     } else {
       const STEPS = [1, 2, 3, 4, 6, 8, 9, 12];
@@ -2165,9 +2452,7 @@ class GlassHomeGridView extends HTMLElement {
       if (a === 'h-') nh = Math.max(1, h - 1);
       cards[i] = { ...cards[i], grid_options: { ...(cards[i].grid_options || {}), columns: nw, rows: nh } };
     }
-    view.cards = cards;
-    views[this._index] = view;
-    l.saveConfig({ ...l.config, views });
+    return true;
   }
 
   _render() {
@@ -2177,6 +2462,7 @@ class GlassHomeGridView extends HTMLElement {
     const root = this.shadowRoot;
     root.innerHTML = `<style>${GRID_STYLE}</style><div class="g"></div>`;
     const g = root.querySelector('.g');
+    g.addEventListener('gh-save-card', (ev) => this._onSave(ev, g));
     this._cards.forEach((card, i) => {
       const go = this._cfg(i).grid_options || {};
       const w = go.columns === 'full' ? 12 : Math.min(12, Math.max(1, Number(go.columns) || 4));
@@ -2326,6 +2612,8 @@ if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-
 if (!customElements.get('glass-home-agenda-editor')) customElements.define('glass-home-agenda-editor', GlassHomeAgendaEditor);
 if (!customElements.get('glass-home-rooms')) customElements.define('glass-home-rooms', GlassHomeRoomsCard);
 if (!customElements.get('glass-home-rooms-editor')) customElements.define('glass-home-rooms-editor', GlassHomeRoomsEditor);
+if (!customElements.get('glass-home-temperature')) customElements.define('glass-home-temperature', GlassHomeTemperatureCard);
+if (!customElements.get('glass-home-temperature-editor')) customElements.define('glass-home-temperature-editor', GlassHomeTemperatureEditor);
 if (!customElements.get('glass-home-grid')) customElements.define('glass-home-grid', GlassHomeGridView);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
@@ -2333,10 +2621,11 @@ window.customCards = window.customCards || [];
 for (const card of [
   { type: 'glass-home-nav', name: 'Glass Home – Navigation', description: 'Navigation aus den Ansichten des Dashboards, mit Uhrzeit.' },
   { type: 'glass-home-header', name: 'Glass Home – Kopfzeile', description: 'Begrüßung, Hinweise mit Aktion (offene Fenster, lange brennendes Licht, Schloss) und Wetter.' },
-  { type: 'glass-home-status', name: 'Glass Home – Status', description: 'Kacheln für Lichter, Rollos, Temperaturen, Fenster und Schlösser. Tippen öffnet die Übersicht aller Geräte.' },
+  { type: 'glass-home-status', name: 'Glass Home – Status', description: 'Kacheln für Lichter, Rollos, Steckdosen, Anwesenheit, Temperatur, Fenster und Schlösser. Tippen öffnet die Übersicht; Steckdosen und Temperaturfühler lassen sich dort hinzufügen und entfernen.' },
   { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Tageskurve aus dem Energie-Dashboard.' },
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
+  { type: 'glass-home-temperature', name: 'Glass Home – Temperatur', description: 'Selbst gewählte Temperaturfühler mit Durchschnitt. Die Statuskachel Temperatur zeigt denselben Durchschnitt.' },
   { type: 'glass-home-scenes', name: 'Glass Home – Szenen', description: 'Szenen und Skripte als Kacheln, dazu „Alles aus“.' },
   { type: 'glass-home-rooms', name: 'Glass Home – Räume-Liste', description: 'Alle Räume untereinander mit Temperatur, Feuchte und Licht. Tippen öffnet die Raumübersicht.' },
   { type: 'glass-home-room', name: 'Glass Home – Raum', description: 'Ein Bereich mit Temperatur, Licht- und Rollo-Regler. Geräte kommen automatisch aus dem Bereich.' },
