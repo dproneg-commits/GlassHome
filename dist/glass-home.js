@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.0';
+const GH_VERSION = '0.8.1';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -881,7 +881,7 @@ class GlassHomeScenesEditor extends GlassHomeFormEditor {
 /* ------------------------------------------------------------------ */
 const NAV_STYLE = `
   :host{container-type:inline-size}
-  .nav{display:flex;align-items:center;gap:6px;padding:8px;min-height:60px}
+  .nav{display:flex;align-items:center;gap:6px;padding:8px;min-height:60px;height:100%;box-sizing:border-box}
   .nav a{height:42px;min-width:42px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:14px;color:var(--gh-mute);
          padding:0 12px;font-size:14px;cursor:pointer;text-decoration:none;white-space:nowrap;user-select:none;-webkit-user-select:none}
   .nav a.on{background:rgba(255,255,255,.14);color:var(--gh-txt);font-weight:600;font-size:15px}
