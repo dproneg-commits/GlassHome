@@ -29,11 +29,24 @@ strategy:
   names:                     # optional, Begrüßung je Benutzer (sonst Vorname des Benutzers)
     viewer: Familie Huber
   kiosk: [viewer]            # optional, ohne HA-Kopfzeile und Seitenleiste für diese Benutzer
+  layout: sections           # optional, statt Glass-Raster das HA-Abschnittslayout
   title: Zuhause             # optional
   hide_areas: [garage]       # optional, Bereichs-IDs ausblenden
   modules:                   # optional, Module abschalten
     energy: false
 ```
+
+Standard ist das **Glass-Raster** (eigene Ansicht `custom:glass-home-grid`, 12 Spalten, Zeilenhöhe füllt den Bildschirm):
+
+| Bereich | Breite × Höhe |
+| --- | --- |
+| Navigation | 12 × 1 |
+| Begrüßung + Wetter | 9 × 2 + 3 × 2 |
+| Statusleiste | 12 × 1 |
+| Flächen (Raum, Müll, Einkauf & Termine) | 4 × 3 |
+| Energie | 4 × 6 |
+
+Eigene Karten in der Ansicht bekommen ihre Größe über `grid_options: { columns, rows }` (z. B. 4 × 6, 8 × 3, 12 × 6). Tablet hochkant: Flächen halb breit, Handy: alles untereinander. Mit `layout: sections` in der Strategie gibt es das bisherige HA-Abschnittslayout.
 
 Daraus entsteht bei jedem Laden:
 - **Start:** Navigation, Kopfzeile, Statuskacheln (nur wenn es Lichter, Rollos, Temperaturen, Fenster oder Schlösser gibt), darunter eine Raumkarte pro Bereich mit Geräten.

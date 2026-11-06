@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.7.4';
+const GH_VERSION = '0.8.0';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -477,6 +477,7 @@ const HEADER_STYLE = `
   .wx small{display:block;font-size:12px;color:var(--gh-mute);margin-top:4px}
   .fc{display:flex;gap:10px;margin-top:8px;font-size:11.5px;color:var(--gh-mute)}.fc b{color:var(--gh-txt);font-weight:500}
   .wrap.nowx{grid-template-columns:1fr}
+  .wrap{height:100%}.wrap>section{height:100%}
   @container (max-width:620px){
     .wrap{grid-template-columns:1fr}
     .hero{padding:14px 16px}.hero h1{font-size:24px}
@@ -631,6 +632,8 @@ class GlassHomeHeaderCard extends HTMLElement {
     const alerts = c.show_alerts ? this._alerts() : [];
     const shown = alerts.slice(0, 4), rest = alerts.length - shown.length;
     const wxId = this._weatherId(), wx = wxId && h.states[wxId];
+    // part: hero = nur Begrüßung, weather = nur Wetter (für das Glass-Raster), sonst beides
+    const part = c.part || 'both';
 
     let wxHtml = '';
     if (wx) {
@@ -645,17 +648,17 @@ class GlassHomeHeaderCard extends HTMLElement {
         <small>${esc(WX_TEXT[wx.state] || wx.state)}${extra}</small>${fc ? `<div class="fc">${fc}</div>` : ''}</div></section>`;
     }
 
-    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${HEADER_STYLE}</style>
-      <div class="wrap ${wx ? '' : 'nowx'}">
+    const heroHtml = part === 'weather' ? '' : `
         <section class="hero p">
           <h1>${greeting()}${who ? `, <b>${esc(who)}</b>` : ''}</h1>
           <p>${esc(this._summary())}</p>
           ${alerts.length ? `<div class="alerts">${shown.map((al, i) => `
             <span class="al ${al.ok ? 'ok' : ''}">${icon(al.icon, 16)}${esc(al.text)}${al.act ? `<button class="act" data-i="${i}">${al.act}</button>` : ''}</span>`).join('')}
             ${rest > 0 ? `<span class="al more">+${rest} weitere</span>` : ''}</div>` : ''}
-        </section>
-        ${wxHtml}
-      </div>`;
+        </section>`;
+    const wxPart = part === 'hero' ? '' : wxHtml;
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${HEADER_STYLE}</style>
+      <div class="wrap ${wxPart && heroHtml ? '' : 'nowx'}">${heroHtml}${wxPart}</div>`;
 
     this.shadowRoot.querySelectorAll('.act').forEach((b) => b.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -675,6 +678,7 @@ const HEADER_SCHEMA = [
   {
     type: 'grid', name: '', schema: [
       { name: 'show_weather', selector: { boolean: {} } },
+      { name: 'part', selector: { select: { mode: 'dropdown', options: [{ value: 'both', label: 'Begrüßung und Wetter' }, { value: 'hero', label: 'Nur Begrüßung' }, { value: 'weather', label: 'Nur Wetter' }] } } },
       { name: 'show_alerts', selector: { boolean: {} } },
     ],
   },
@@ -682,7 +686,7 @@ const HEADER_SCHEMA = [
 ];
 const HEADER_LABELS = {
   name: 'Name in der Begrüßung (leer = angemeldeter Benutzer)', weather: 'Wetter (leer = automatisch)',
-  show_weather: 'Wetter zeigen', show_alerts: 'Hinweise zeigen', light_hours: 'Hinweis, wenn Licht länger an ist als',
+  show_weather: 'Wetter zeigen', part: 'Teil', show_alerts: 'Hinweise zeigen', light_hours: 'Hinweis, wenn Licht länger an ist als',
 };
 
 // Gemeinsamer Editor auf Basis von ha-form
@@ -1656,7 +1660,7 @@ function wasteSensors(h) {
 const dayWord = (d) => (d === 0 ? 'heute' : d === 1 ? 'morgen' : d === 2 ? 'übermorgen' : `in ${d} Tagen`);
 
 const WASTE_STYLE = `
-  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%}
+  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;overflow:auto}
   .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:10px}
   .wn{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;margin-bottom:10px;
       background:color-mix(in srgb,var(--c) 22%,transparent);border:1px solid color-mix(in srgb,var(--c) 60%,transparent)}
@@ -1782,7 +1786,7 @@ function defaultTodo(h) {
 const calendarIds = (h) => Object.keys(h.states).filter((id) => id.startsWith('calendar.') && visible(h, id) && !isWasteCal(h, id));
 
 const AGENDA_STYLE = `
-  .card{padding:14px 16px;display:flex;flex-direction:column;gap:12px;height:100%}
+  .card{padding:14px 16px;display:flex;flex-direction:column;gap:12px;height:100%;overflow:auto}
   .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
   .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
   section{display:flex;flex-direction:column;gap:6px}
@@ -1938,6 +1942,107 @@ class GlassHomeAgendaEditor extends GlassHomeFormEditor {
 }
 
 /* ------------------------------------------------------------------ */
+/* Glass-Raster: eigene Ansicht mit festem 12-Spalten-Raster           */
+/* type: custom:glass-home-grid; Karten: grid_options {columns, rows}  */
+/* Standard: Kopf 12x1, Begrüßung 9x2 + Wetter 3x2, Status 12x1,       */
+/* Flächen 4x3 (zusammenlegbar zu 4x6, 8x3, 8x6, 12x3, 12x6)           */
+/* ------------------------------------------------------------------ */
+const GRID_STYLE = `
+  :host{display:block;box-sizing:border-box;padding:var(--gh-pad,12px);--gh-gap:10px}
+  .g{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:var(--gh-row,64px);gap:var(--gh-gap);grid-auto-flow:row dense;
+     max-width:var(--glass-home-max-width,1920px);margin:0 auto}
+  .c{position:relative;min-width:0;min-height:0;grid-column:span var(--w);grid-row:span var(--h)}
+  .c>*{display:block;height:100%;overflow:hidden;border-radius:var(--glass-home-radius,22px)}
+  .ed{position:absolute;top:6px;right:6px;z-index:2;display:flex;gap:4px}
+  .ed button,.add{border:0;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1 system-ui;padding:7px 10px;cursor:pointer}
+  .add{grid-column:span 12;padding:14px;border:1px dashed rgba(255,255,255,.3);background:rgba(255,255,255,.04);border-radius:16px}
+  /* Tablet hochkant: Flächen halb statt drittel breit */
+  @media (max-width:1000px){ .c{grid-column:span var(--wm)} }
+  /* Handy: untereinander, Höhe nach Inhalt (mindestens das Raster) */
+  @media (max-width:700px){
+    :host{--gh-pad:8px;--gh-gap:8px}
+    .g{grid-auto-rows:auto}
+    .c{grid-column:span var(--ws);grid-row:auto;min-height:calc(var(--h) * 56px)}
+  }
+`;
+
+class GlassHomeGridView extends HTMLElement {
+  set hass(h) { this._hass = h; (this._cards || []).forEach((c) => { c.hass = h; }); }
+  set lovelace(l) { this._lovelace = l; this._render(); }
+  get lovelace() { return this._lovelace; }
+  set index(i) { this._index = i; }
+  set cards(c) { this._cards = c || []; this._render(); }
+  set badges(b) { this._badges = b; }
+  set narrow(n) { this._narrow = n; }
+  set isStrategy(v) { this._isStrategy = v; }
+
+  connectedCallback() {
+    this._onResize = () => this._fit();
+    window.addEventListener('resize', this._onResize);
+    this._render();
+  }
+
+  disconnectedCallback() { window.removeEventListener('resize', this._onResize); }
+
+  _cfg(i) {
+    const card = this._cards[i];
+    return card?.config || this._lovelace?.config?.views?.[this._index]?.cards?.[i] || {};
+  }
+
+  // Zeilenhöhe so, dass das Grundraster (10 Zeilen) genau den sichtbaren Bereich füllt
+  _fit() {
+    if (!this.isConnected) return;
+    const rows = Number(this._lovelace?.config?.views?.[this._index]?.rows) || 10;
+    const top = Math.max(0, this.getBoundingClientRect().top + window.scrollY);
+    const pad = 12, gap = 10;
+    const avail = window.innerHeight - top - pad * 2 - gap * (rows - 1);
+    // hochkant und schmal feste Zeilen, sonst Bildschirm füllen (56 bis 110 px)
+    const row = window.innerWidth <= 1000 ? 64 : Math.min(110, Math.max(56, Math.floor(avail / rows)));
+    this.style.setProperty('--gh-row', `${row}px`);
+  }
+
+  _render() {
+    if (!this._cards || !this.isConnected) return;
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const edit = !!this._lovelace?.editMode;
+    const root = this.shadowRoot;
+    root.innerHTML = `<style>${GRID_STYLE}</style><div class="g"></div>`;
+    const g = root.querySelector('.g');
+    this._cards.forEach((card, i) => {
+      const go = this._cfg(i).grid_options || {};
+      const w = go.columns === 'full' ? 12 : Math.min(12, Math.max(1, Number(go.columns) || 4));
+      const h = Math.max(1, Number(go.rows) || 3);
+      const cell = document.createElement('div');
+      cell.className = 'c';
+      // Tablet hochkant: Drittel -> Hälfte; Handy: Kacheln bis 2 breit halb, sonst ganz
+      cell.style.cssText = `--w:${w};--h:${h};--wm:${w === 4 ? 6 : w === 8 ? 12 : w};--ws:${w <= 2 ? 6 : 12}`;
+      if (this._hass) card.hass = this._hass;
+      cell.appendChild(card);
+      if (edit) {
+        const ed = document.createElement('div');
+        ed.className = 'ed';
+        ed.innerHTML = '<button data-a="edit">Bearbeiten</button><button data-a="del">Löschen</button>';
+        ed.addEventListener('click', (ev) => {
+          const a = ev.target.closest('button')?.dataset.a;
+          if (a === 'edit') this.dispatchEvent(new CustomEvent('ll-edit-card', { detail: { path: [this._index, i] }, bubbles: true, composed: true }));
+          if (a === 'del') this.dispatchEvent(new CustomEvent('ll-delete-card', { detail: { path: [this._index, i], confirm: true }, bubbles: true, composed: true }));
+        });
+        cell.appendChild(ed);
+      }
+      g.appendChild(cell);
+    });
+    if (edit) {
+      const add = document.createElement('button');
+      add.className = 'add';
+      add.textContent = '+ Karte hinzufügen';
+      add.addEventListener('click', () => this.dispatchEvent(new CustomEvent('ll-create-card', { detail: {}, bubbles: true, composed: true })));
+      g.appendChild(add);
+    }
+    requestAnimationFrame(() => this._fit());
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Dashboard-Strategie: baut alle Seiten aus den erkannten Modulen     */
 /* strategy: { type: custom:glass-home }                               */
 /* ------------------------------------------------------------------ */
@@ -1974,6 +2079,27 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const waste = { type: 'custom:glass-home-waste', grid_options: { columns: 12 } };
     const agenda = { type: 'custom:glass-home-agenda', grid_options: { columns: 12 } };
 
+    const empty = { type: 'markdown', content: 'Glass Home hat noch keine Geräte gefunden. Geräte in HA einem **Bereich** zuordnen, dann erscheinen sie hier automatisch.' };
+    if (c.layout !== 'sections') {
+      // Glass-Raster (Standard): 12 Spalten, Flächen 4 x 3
+      const gc = (card, columns, rows) => ({ ...card, grid_options: { columns, rows } });
+      const hasWx = mods.weather;
+      const cards = [gc(nav, 12, 1)];
+      cards.push(gc({ ...header, part: hasWx ? 'hero' : 'both' }, hasWx ? 9 : 12, 2));
+      if (hasWx) cards.push(gc({ type: 'custom:glass-home-header', part: 'weather', show_alerts: false }, 3, 2));
+      if (hasStatus) cards.push(gc(status, 12, 1));
+      const areas = [];
+      if (mods.todo || mods.calendar) areas.push(gc(agenda, 4, 3));
+      if (mods.energy) areas.push(gc(energy, roomCards.length ? 4 : 8, 6));
+      areas.push(...roomCards.map((r) => gc(r, 4, 3)));
+      if (mods.waste) areas.push(gc(waste, 4, 3));
+      if (!areas.length) areas.push(gc(empty, 12, 2));
+      const gview = (title, path, icon, list) => ({ title, path, icon, type: 'custom:glass-home-grid', cards: list });
+      const gviews = [gview('Start', 'start', 'mdi:home', [...cards, ...areas])];
+      if (mods.energy) gviews.push(gview('Energie', 'energie', 'mdi:lightning-bolt', [gc(nav, 12, 1), gc(energy, 12, 6)]));
+      return { title: c.title || 'Zuhause', views: gviews };
+    }
+
     const section = (cards) => ({ type: 'grid', column_span: 4, cards });
     // Energie kommt auf die Startseite, wenn es keine Räume gibt (z.B. nur PV-Kunde)
     const energyOnStart = mods.energy && !roomCards.length;
@@ -1995,7 +2121,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
       views.push(view('Energie', 'energie', 'mdi:lightning-bolt', [section([nav, { ...energy, grid_options: full }])]));
     }
     if (!roomCards.length && !mods.energy && !mods.waste && !mods.todo && !mods.calendar) {
-      startSections.push(section([{ type: 'markdown', content: 'Glass Home hat noch keine Geräte gefunden. Geräte in HA einem **Bereich** zuordnen, dann erscheinen sie hier automatisch.' }]));
+      startSections.push(section([empty]));
     }
     return { title: c.title || 'Zuhause', views };
   }
@@ -2021,6 +2147,7 @@ if (!customElements.get('glass-home-waste')) customElements.define('glass-home-w
 if (!customElements.get('glass-home-waste-editor')) customElements.define('glass-home-waste-editor', GlassHomeWasteEditor);
 if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-agenda', GlassHomeAgendaCard);
 if (!customElements.get('glass-home-agenda-editor')) customElements.define('glass-home-agenda-editor', GlassHomeAgendaEditor);
+if (!customElements.get('glass-home-grid')) customElements.define('glass-home-grid', GlassHomeGridView);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
 window.customCards = window.customCards || [];

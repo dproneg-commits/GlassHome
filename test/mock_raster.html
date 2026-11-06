@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Glass-Raster</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;background:radial-gradient(60vw 60vw at 5% 0%,rgba(120,130,145,.32),transparent 65%),radial-gradient(50vw 50vw at 100% 100%,rgba(90,95,105,.35),transparent 65%),linear-gradient(160deg,#141619,#22262b) fixed}
+</style></head><body>
+<div id="host"></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Ganzes Dashboard aus der Strategie im Glass-Raster (ohne HA), ?energy=0 ohne PV, ?edit=1 Bearbeiten
+// Beispielhaus: Kunde mit Licht, Rollos, Sensoren
+const now = Date.now(), ago = (h) => new Date(now - h * 3600e3).toISOString();
+const S = {}, E = {}, D = {};
+const add = (id, state, attrs, area, extra = {}) => {
+  S[id] = { entity_id: id, state, attributes: { friendly_name: id, ...attrs }, last_changed: extra.changed || ago(0.2) };
+  E[id] = { entity_id: id, area_id: area, device_id: null, labels: [], ...extra.reg };
+};
+const dim = { supported_color_modes: ['brightness'] }, onoff = { supported_color_modes: ['onoff'] };
+add('light.wz_decke', 'on', { ...dim, brightness: 178 }, 'wohnzimmer');
+add('light.wz_steh', 'on', { ...dim, brightness: 102 }, 'wohnzimmer');
+add('cover.wz', 'open', { current_position: 40, supported_features: 15 }, 'wohnzimmer');
+add('sensor.wz_t', '21.8', { device_class: 'temperature' }, 'wohnzimmer');
+add('sensor.wz_h', '48', { device_class: 'humidity' }, 'wohnzimmer');
+add('light.kueche', 'on', onoff, 'kueche');
+add('cover.kueche', 'open', { current_position: 100, supported_features: 15 }, 'kueche');
+add('climate.kueche', 'heat', { current_temperature: 22.4 }, 'kueche');
+add('light.schlaf', 'off', dim, 'schlafzimmer');
+add('cover.schlaf', 'closed', { current_position: 0, supported_features: 15 }, 'schlafzimmer');
+add('binary_sensor.schlaf_fenster', 'on', { device_class: 'window', friendly_name: 'Schlafzimmerfenster' }, 'schlafzimmer');
+add('sensor.schlaf_t', '19.2', { device_class: 'temperature' }, 'schlafzimmer');
+add('light.keller', 'on', onoff, 'keller', { changed: ago(3.2) });
+add('cover.markise', 'closed', { device_class: 'awning', supported_features: 3 }, 'terrasse');
+add('sensor.bad_t', '23.1', { device_class: 'temperature' }, 'bad');
+add('light.hidden', 'on', onoff, 'bad', { reg: { hidden: true } });
+add('weather.home', 'partlycloudy', { temperature: 11.4, temperature_unit: '°C', apparent_temperature: 9.2, humidity: 71 }, null);
+add('scene.abend', ago(1), { friendly_name: 'Abend' }, null);
+add('scene.gute_nacht', ago(20), { friendly_name: 'Gute Nacht' }, null);
+add('scene.abwesend', ago(48), { friendly_name: 'Abwesend' }, null);
+add('scene.film', ago(30), { friendly_name: 'Film' }, null);
+add('binary_sensor.wz_tuer', 'off', { device_class: 'door', friendly_name: 'Wohnzimmer Terrassentür' }, 'wohnzimmer');
+add('lock.haustuer', 'locked', { friendly_name: 'Haustür' }, 'vorraum');
+
+const pad = (n) => String(n).padStart(2, '0');
+const dayS = (d) => { const x = new Date(); x.setDate(x.getDate() + d); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+add('calendar.waste_collection_schedule_mull', 'off', { friendly_name: 'Müll', message: 'Biomüll', start_time: `${dayS(5)} 00:00:00` }, null, { reg: { platform: 'waste_collection_schedule' } });
+add('calendar.familie', 'off', { friendly_name: 'Familie' }, null);
+add('todo.shopping_list', '2', { friendly_name: 'Einkaufsliste' }, null);
+const q = new URLSearchParams(location.search);
+const ev = (summary, d) => ({ summary, start: { date: dayS(d) }, end: { date: dayS(d + 1) } });
+const hass = {
+  states: S, entities: E, devices: D,
+  areas: { wohnzimmer: { area_id: 'wohnzimmer', name: 'Wohnzimmer' }, kueche: { area_id: 'kueche', name: 'Küche' }, schlafzimmer: { area_id: 'schlafzimmer', name: 'Schlafzimmer' } },
+  user: { name: 'Silvia', is_admin: true }, config: { time_zone: 'Europe/Vienna' },
+  connection: { subscribeMessage(cb) { setTimeout(() => cb({ forecast: [0, 1, 2, 3].map((n) => ({ datetime: new Date(Date.now() + n * 864e5).toISOString(), temperature: 10 + n })) }), 30); return Promise.resolve(() => {}); } },
+  callService() {},
+  async callWS(msg) {
+    if (msg.type === 'energy/get_prefs') return q.get('energy') === '0' ? { energy_sources: [] } : { energy_sources: [{ type: 'solar', stat_energy_from: 'sensor.pv' }, { type: 'grid', flow_from: [{ stat_energy_from: 'sensor.bezug' }], flow_to: [{ stat_energy_to: 'sensor.einsp' }] }] };
+    if (msg.type === 'todo/item/list') return { items: [{ uid: 'a', summary: 'Milch', status: 'needs_action' }, { uid: 'b', summary: 'Brot', status: 'needs_action' }] };
+    if (msg.type === 'recorder/statistics_during_period') {
+      const out = {};
+      for (const id of msg.statistic_ids) out[id] = Array.from({ length: 13 }, (_, h) => ({ start: new Date().setHours(h, 0, 0, 0), change: id === 'sensor.pv' ? Math.max(0, Math.sin((h - 6) / 12 * Math.PI)) * 2 : id === 'sensor.bezug' ? 0.4 : 0.1 }));
+      return out;
+    }
+    throw new Error(msg.type);
+  },
+  async callApi(m, path) {
+    if (path.includes('waste_collection')) return [ev('Biomüll', 5), ev('Restmüll', 13), ev('Papier', 18), ev('Leicht-/Metallverpackung', 26)];
+    if (path.includes('familie')) return [{ summary: 'Papa', start: { date: dayS(0) }, end: { date: dayS(1) } }];
+    return [];
+  },
+};
+(async () => {
+  for (const k of Object.keys(S)) S[k].last_updated = S[k].last_changed;
+  const conf = await GlassHome.generate({ names: { viewer: 'Familie Proneg' } }, hass);
+  const v = conf.views[Number(q.get('view') || 0)];
+  const lovelace = { config: conf, editMode: q.get('edit') === '1' };
+  const cards = v.cards.map((cc) => { const el = document.createElement(cc.type.replace('custom:', 'hui-').startsWith('hui-glass') ? cc.type.slice(7) : 'div'); el.setConfig?.(cc); el.config = cc; return el; });
+  const view = document.createElement('glass-home-grid');
+  const host = document.getElementById('host'); host.lovelace = lovelace; host.appendChild(view);
+  view.hass = hass; view.lovelace = lovelace; view.index = 0; view.cards = cards; view.hass = hass;
+  window.__conf = conf; window.__view = view; window.__hass = hass;
+})();
+</script></body></html>
