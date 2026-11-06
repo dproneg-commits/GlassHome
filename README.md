@@ -207,7 +207,8 @@ max: 5                  # nur bei automatisch
 ```yaml
 type: custom:glass-home-header
 name: Familie Huber     # optional, sonst Vorname des angemeldeten Benutzers
-weather: weather.home   # optional, sonst die erste Wetter-Entität
+weather: weather.home   # optional, sonst die erste Wetter-Entität, die Daten liefert
+forecast_days: 7        # Vorschau, Standard 3; ab 4 als Wochenleiste mit Symbol und Tiefstwert
 show_weather: true
 show_alerts: true
 light_hours: 2          # Hinweis, wenn ein Licht länger an ist
@@ -215,7 +216,7 @@ light_hours: 2          # Hinweis, wenn ein Licht länger an ist
 
 - Begrüßung nach Tageszeit, darunter Kurzstatus (Lichter, Innentemperatur, Rollos) aus allen Geräten mit Bereich.
 - Hinweise mit Aktion: offene Fenster/Türen (Anzeigen), lange brennendes Licht (Ausschalten), offenes Schloss (Zusperren). Höchstens 4, Rest als „+N weitere“.
-- Wetter mit 3-Tage-Vorschau, Tippen öffnet die Detailansicht. Am Handy untereinander.
+- Wetter mit 3-Tage-Vorschau (oder Wochenleiste mit `forecast_days: 7`), Tippen öffnet die Detailansicht. Am Handy untereinander.
 
 ## Raumkarte
 

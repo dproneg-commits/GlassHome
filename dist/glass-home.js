@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.0';
+const GH_VERSION = '0.9.1';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -477,6 +477,18 @@ const HEADER_STYLE = `
   .wx small{display:block;font-size:12px;color:var(--gh-mute);margin-top:4px}
   .fc{display:flex;gap:10px;margin-top:8px;font-size:11.5px;color:var(--gh-mute)}.fc b{color:var(--gh-txt);font-weight:500}
   .wrap.nowx{grid-template-columns:1fr}
+  .wrap.wide{grid-template-columns:1fr minmax(260px,400px)}
+  .wx.wk{flex-direction:column;align-items:stretch;justify-content:center;gap:8px;padding:10px 12px;min-width:0;overflow:hidden}
+  .wk .nw{display:flex;align-items:center;gap:12px}.wk .nw .t{font-size:36px}.wk .nw small{margin-top:2px}
+  .wk7{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:2px;text-align:center}
+  .wk7 span{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border-radius:10px;min-width:0}
+  .wk7 span.td{background:rgba(255,255,255,.07)}
+  .wx.wk{container-type:inline-size}.wk7 u{text-decoration:none}.wk7 s{display:none;text-decoration:none}
+  /* schmale Wetterfläche (z. B. 3 Spalten mit Seitenleiste): nur Höchstwert, kurzer Tagname */
+  @container (max-width:300px){.wk7 i,.wk7 u{display:none}.wk7 s{display:inline}.wk7 b{font-size:12px}
+    .wk .nw .t{font-size:30px}.wk .nw small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wk .nw>div{min-width:0}.wx.wk{gap:6px}}
+  .wk7 em{font-style:normal;font-size:11px;color:var(--gh-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .wk7 b{font-size:13px;font-weight:600;white-space:nowrap}.wk7 i{font-style:normal;font-size:11px;font-weight:400;color:var(--gh-mute)}
   .wrap{height:100%}.wrap>section{height:100%}
   /* schmale Begrüßung: Hinweise in einer Zeile zum Wischen statt umbrechen */
   @container (max-width:640px){
@@ -485,7 +497,7 @@ const HEADER_STYLE = `
     .al{flex:none}
   }
   @container (max-width:620px){
-    .wrap{grid-template-columns:1fr}
+    .wrap,.wrap.wide{grid-template-columns:1fr}
     .hero{padding:14px 16px}.hero h1{font-size:24px}
     .wx{padding:12px 16px}.wx .t{font-size:40px}
   }
@@ -530,7 +542,9 @@ class GlassHomeHeaderCard extends HTMLElement {
   _weatherId() {
     if (!this._config.show_weather || !this._hass) return null;
     if (this._config.weather) return this._config.weather;
-    return Object.keys(this._hass.states).find((id) => id.startsWith('weather.') && visible(this._hass, id)) || null;
+    // ohne Vorgabe: erste Wetter-Entität, die gerade Daten liefert
+    const all = Object.keys(this._hass.states).filter((id) => id.startsWith('weather.') && visible(this._hass, id));
+    return all.find((id) => !['unknown', 'unavailable'].includes(this._hass.states[id].state)) || all[0] || null;
   }
 
   _unsub() {
@@ -644,14 +658,29 @@ class GlassHomeHeaderCard extends HTMLElement {
     let wxHtml = '';
     if (wx) {
       const a = wx.attributes, unit = a.temperature_unit || '°C';
-      const fc = (this._forecast || []).slice(1, 4).map((f) => {
-        const d = new Date(f.datetime);
-        return `<span>${WEEKDAY[d.getDay()]} <b>${Math.round(f.temperature)}°</b></span>`;
-      }).join('');
+      const n = Math.max(0, Math.min(10, Number(c.forecast_days ?? 3)));
       const extra = a.apparent_temperature != null ? ` · gefühlt ${Math.round(a.apparent_temperature)}°` : a.humidity != null ? ` · ${Math.round(a.humidity)} %` : '';
-      wxHtml = `<section class="wx p">${icon(WX_ICON[wx.state] || 'cloudsun', 58)}
-        <div><div class="t">${a.temperature != null ? fmt(a.temperature) : '–'}<sup>${esc(unit)}</sup></div>
-        <small>${esc(WX_TEXT[wx.state] || wx.state)}${extra}</small>${fc ? `<div class="fc">${fc}</div>` : ''}</div></section>`;
+      const now = `<div class="t">${a.temperature != null ? fmt(a.temperature) : '–'}<sup>${esc(unit)}</sup></div>
+        <small>${esc(WX_TEXT[wx.state] || wx.state)}${extra}</small>`;
+      if (n > 3) {
+        // Wochenleiste: heute + folgende Tage, je Symbol, Höchst- und Tiefstwert
+        const today = new Date().toDateString();
+        const days = (this._forecast || []).filter((f) => dayStart(new Date(f.datetime)) >= dayStart(new Date())).slice(0, n);
+        const strip = days.map((f) => {
+          const d = new Date(f.datetime), isToday = d.toDateString() === today;
+          return `<span class="${isToday ? 'td' : ''}"><em>${isToday ? `<u>Heute</u><s>${WEEKDAY[d.getDay()]}</s>` : WEEKDAY[d.getDay()]}</em>${icon(WX_ICON[f.condition] || 'cloudsun', 20)}
+            <b>${Math.round(f.temperature)}°${f.templow != null ? `<i> ${Math.round(f.templow)}°</i>` : ''}</b></span>`;
+        }).join('');
+        wxHtml = `<section class="wx wk p"><div class="nw">${icon(WX_ICON[wx.state] || 'cloudsun', 44)}<div>${now}</div></div>
+          ${strip ? `<div class="wk7" style="--n:${days.length}">${strip}</div>` : ''}</section>`;
+      } else {
+        const fc = (this._forecast || []).slice(1, 1 + n).map((f) => {
+          const d = new Date(f.datetime);
+          return `<span>${WEEKDAY[d.getDay()]} <b>${Math.round(f.temperature)}°</b></span>`;
+        }).join('');
+        wxHtml = `<section class="wx p">${icon(WX_ICON[wx.state] || 'cloudsun', 58)}
+          <div>${now}${fc ? `<div class="fc">${fc}</div>` : ''}</div></section>`;
+      }
     }
 
     const heroHtml = part === 'weather' ? '' : `
@@ -664,7 +693,7 @@ class GlassHomeHeaderCard extends HTMLElement {
         </section>`;
     const wxPart = part === 'hero' ? '' : wxHtml;
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${HEADER_STYLE}</style>
-      <div class="wrap ${wxPart && heroHtml ? '' : 'nowx'}">${heroHtml}${wxPart}</div>`;
+      <div class="wrap ${wxPart && heroHtml ? '' : 'nowx'} ${heroHtml && wxPart.includes('wx wk') ? 'wide' : ''}">${heroHtml}${wxPart}</div>`;
 
     this.shadowRoot.querySelectorAll('.act').forEach((b) => b.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -688,11 +717,12 @@ const HEADER_SCHEMA = [
       { name: 'show_alerts', selector: { boolean: {} } },
     ],
   },
+  { name: 'forecast_days', selector: { number: { min: 0, max: 10, step: 1, mode: 'box', unit_of_measurement: 'Tage' } } },
   { name: 'light_hours', selector: { number: { min: 1, max: 12, step: 1, mode: 'box', unit_of_measurement: 'Std' } } },
 ];
 const HEADER_LABELS = {
   name: 'Name in der Begrüßung (leer = angemeldeter Benutzer)', weather: 'Wetter (leer = automatisch)',
-  show_weather: 'Wetter zeigen', part: 'Teil', show_alerts: 'Hinweise zeigen', light_hours: 'Hinweis, wenn Licht länger an ist als',
+  show_weather: 'Wetter zeigen', part: 'Teil', forecast_days: 'Vorschau (Tage, ab 4 als Wochenleiste)', show_alerts: 'Hinweise zeigen', light_hours: 'Hinweis, wenn Licht länger an ist als',
 };
 
 // Gemeinsamer Editor auf Basis von ha-form
@@ -721,7 +751,7 @@ class GlassHomeFormEditor extends HTMLElement {
 class GlassHomeHeaderEditor extends GlassHomeFormEditor {
   static schema = HEADER_SCHEMA;
   static labels = HEADER_LABELS;
-  static defaults = { show_weather: true, show_alerts: true, light_hours: 2 };
+  static defaults = { show_weather: true, show_alerts: true, light_hours: 2, forecast_days: 3 };
 }
 
 /* ------------------------------------------------------------------ */
