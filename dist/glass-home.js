@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.1';
+const GH_VERSION = '0.8.2';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1090,6 +1090,10 @@ function collect(hass, kind) {
     openings: (id) => (id.startsWith('binary_sensor.') && OPENING_CLASSES.includes(hass.states[id].attributes.device_class))
       || (id.startsWith('cover.') && NON_BLIND_COVERS.includes(hass.states[id].attributes.device_class)),
     locks: (id) => id.startsWith('lock.'),
+    // Steckdosen: Schalter mit Geräteklasse outlet oder passendem Namen
+    plugs: (id) => id.startsWith('switch.') && (hass.states[id].attributes.device_class === 'outlet'
+      || /steckdose|plug|outlet|socket/i.test(id + ' ' + (hass.states[id].attributes.friendly_name || ''))),
+    presence: (id) => id.startsWith('person.'),
   }[kind];
   const groups = new Map();
   for (const id of Object.keys(hass.states)) {
@@ -1100,7 +1104,7 @@ function collect(hass, kind) {
     if (!groups.has(area)) groups.set(area, []);
     groups.get(area).push(id);
   }
-  const name = (a) => (a ? hass.areas?.[a]?.name || a : 'Ohne Bereich');
+  const name = (a) => (a ? hass.areas?.[a]?.name || a : kind === 'presence' ? 'Personen' : 'Ohne Bereich');
   return [...groups.entries()]
     .sort(([a], [b]) => (a ? 0 : 1) - (b ? 0 : 1) || name(a).localeCompare(name(b), 'de'))
     .map(([area, ids]) => ({ area, name: name(area), ids }));
@@ -1143,12 +1147,24 @@ function summarize(hass, kind) {
       const open = ids.filter((id) => st(id).state !== 'locked').length;
       return { value: open ? `${open} offen` : 'Versperrt', label: `Schlösser · ${ids.length}`, icon: 'lock', warn: open > 0, color: open ? '255,183,77' : '95,214,142' };
     }
+    case 'plugs': {
+      const on = ids.filter((id) => st(id).state === 'on').length;
+      return { value: on ? `${on} an` : 'Alle aus', label: `Steckdosen · ${ids.length}`, icon: 'plug', hot: on > 0, color: '77,208,225' };
+    }
+    case 'presence': {
+      const home = ids.filter((id) => st(id).state === 'home');
+      const first = (id) => (st(id).attributes.friendly_name || id.split('.')[1]).split(' ')[0];
+      const value = home.length === ids.length ? (ids.length > 1 ? 'Alle zuhause' : 'Zuhause') : home.length ? `${home.length} von ${ids.length} da` : 'Niemand da';
+      const label = home.length && home.length < 4 ? home.map(first).join(', ') : 'Anwesenheit';
+      return { value, label, icon: 'home', hot: home.length > 0, color: '180,140,255' };
+    }
   }
   return null;
 }
 
-const KIND_TITLE = { lights: 'Lichter', covers: 'Rollos', climate: 'Temperaturen', openings: 'Fenster & Türen', locks: 'Schlösser' };
-const ALL_KINDS = ['lights', 'covers', 'climate', 'openings', 'locks'];
+const KIND_TITLE = { lights: 'Lichter', covers: 'Rollos', climate: 'Temperaturen', openings: 'Fenster & Türen', locks: 'Schlösser', plugs: 'Steckdosen', presence: 'Wer ist zuhause' };
+// Reihenfolge der Statuskacheln
+const ALL_KINDS = ['openings', 'lights', 'covers', 'plugs', 'presence', 'climate', 'locks'];
 
 const STATUS_STYLE = `
   :host{container-type:inline-size}
@@ -1332,6 +1348,15 @@ class GlassHomePopup extends HTMLElement {
       return `<div class="ln"><span>${n}</span><b class="${locked ? 'ok' : 'warn'}">${locked ? 'Versperrt' : st.state === 'jammed' ? 'Blockiert' : 'Offen'}</b>
         <button data-lock="${id}" data-to="${locked ? 'unlock' : 'lock'}">${locked ? 'Aufsperren' : 'Zusperren'}</button></div>`;
     }
+    if (k === 'plugs') {
+      const on = st.state === 'on';
+      return `<div class="ln"><span>${n}</span><b class="${on ? 'warn' : ''}">${on ? 'An' : 'Aus'}</b>
+        <button data-tog="${id}">${on ? 'Ausschalten' : 'Einschalten'}</button></div>`;
+    }
+    if (k === 'presence') {
+      const where = st.state === 'home' ? 'Zuhause' : st.state === 'not_home' ? 'Unterwegs' : st.state;
+      return `<div class="ln tap" data-mi="${id}"><span>${n}</span><b class="${st.state === 'home' ? 'ok' : ''}">${esc(where)}</b></div>`;
+    }
     return '';
   }
 
@@ -1343,6 +1368,7 @@ class GlassHomePopup extends HTMLElement {
       this.close();
     }));
     box.querySelectorAll('[data-lock]').forEach((b) => b.addEventListener('click', () => h().callService('lock', b.dataset.to, { entity_id: b.dataset.lock })));
+    box.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => h().callService('switch', 'toggle', { entity_id: b.dataset.tog })));
   }
 
   _render(groups) {
@@ -1415,6 +1441,7 @@ class GlassHomeStatusEditor extends GlassHomeFormEditor {
           multiple: true, mode: 'list', options: [
             { value: 'lights', label: 'Lichter' }, { value: 'covers', label: 'Rollos' }, { value: 'climate', label: 'Temperaturen' },
             { value: 'openings', label: 'Fenster & Türen' }, { value: 'locks', label: 'Schlösser' },
+            { value: 'plugs', label: 'Steckdosen' }, { value: 'presence', label: 'Wer ist zuhause' },
           ],
         },
       },
@@ -2178,7 +2205,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
-    const statusKinds = ['lights', 'covers', 'climate', 'openings', 'locks'];
+    const statusKinds = ALL_KINDS;
     const hasStatus = statusKinds.some((k) => summarize(hass, k));
     const full = { columns: 'full' };
     const nav = { type: 'custom:glass-home-nav', grid_options: full, ...(c.kiosk ? { kiosk: c.kiosk } : {}) };
