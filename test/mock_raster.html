@@ -59,7 +59,7 @@ const hass = {
   states: S, entities: E, devices: D,
   areas: { wohnzimmer: { area_id: 'wohnzimmer', name: 'Wohnzimmer' }, kueche: { area_id: 'kueche', name: 'Küche' }, schlafzimmer: { area_id: 'schlafzimmer', name: 'Schlafzimmer' } },
   user: { name: 'Silvia', is_admin: true }, config: { time_zone: 'Europe/Vienna' },
-  connection: { subscribeMessage(cb) { setTimeout(() => cb({ forecast: [0, 1, 2, 3].map((n) => ({ datetime: new Date(Date.now() + n * 864e5).toISOString(), temperature: 10 + n })) }), 30); return Promise.resolve(() => {}); } },
+  connection: { subscribeMessage(cb) { setTimeout(() => cb({ forecast: [0, 1, 2, 3, 4, 5, 6, 7].map((n) => ({ datetime: new Date(new Date().setHours(12, 0, 0, 0) + n * 864e5).toISOString(), temperature: [12, 14, 9, 7, 11, 13, 15, 10][n], templow: [4, 6, 3, 1, 2, 5, 7, 3][n], condition: ['partlycloudy', 'sunny', 'rainy', 'snowy', 'cloudy', 'sunny', 'partlycloudy', 'rainy'][n] })) }), 30); return Promise.resolve(() => {}); } },
   callService() {},
   async callWS(msg) {
     if (msg.type === 'energy/get_prefs') return q.get('energy') === '0' ? { energy_sources: [] } : { energy_sources: [{ type: 'solar', stat_energy_from: 'sensor.pv' }, { type: 'grid', flow_from: [{ stat_energy_from: 'sensor.bezug' }], flow_to: [{ stat_energy_to: 'sensor.einsp' }] }] };
@@ -88,6 +88,9 @@ const hass = {
   const v = conf.views[Number(q.get('view') || 0)];
   // ?temp=1: Temperaturkarte statt der ersten Fläche
   if (q.get('cal') === '1') v.cards.splice(4, 0, { type: 'custom:glass-home-calendar', show_waste: true, ...(q.get('evening') ? { evening: Number(q.get('evening')) } : {}), grid_options: { columns: 4, rows: 3 } });
+  // ?wx=7: Wetter mit Wochenleiste, ?wx=both7: Begrüßung und Wetter in einer Karte (wie bei den Eltern)
+  if (q.get('wx') === '7') v.cards.forEach((cc) => { if (cc.part === 'weather') cc.forecast_days = 7; });
+  if (q.get('wx') === 'both7') { const i = v.cards.findIndex((cc) => cc.part === 'hero'); v.cards.splice(i, 2, { type: 'custom:glass-home-header', forecast_days: 7, grid_options: { columns: 12, rows: 2 } }); }
   if (q.get('temp') === '1') v.cards.splice(4, 0, { type: 'custom:glass-home-temperature', grid_options: { columns: 4, rows: 6 } });
   const lovelace = { config: conf, editMode: q.get('edit') === '1' };
   const mk = (list) => list.map((cc) => { const el = document.createElement(cc.type.replace('custom:', 'hui-').startsWith('hui-glass') ? cc.type.slice(7) : 'div'); el.setConfig?.(cc); el.config = cc; return el; });
