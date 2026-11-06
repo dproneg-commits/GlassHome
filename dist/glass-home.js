@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.9';
+const GH_VERSION = '0.8.10';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -2616,8 +2616,11 @@ class GlassHomeGridView extends HTMLElement {
     }
     if (a === 'renok') { views[i] = { ...cur, title: name }; l.saveConfig({ ...l.config, views }); return; }
     if (a === 'delok' && views.length > 1) {
+      // erst auf eine andere Seite wechseln, dann löschen (sonst rendert HA noch die gelöschte Ansicht)
+      const to = i === 0 ? 1 : 0;
+      go(views[to].path ?? to);
       views.splice(i, 1);
-      l.saveConfig({ ...l.config, views }).then?.(() => go(views[0].path ?? 0));
+      setTimeout(() => l.saveConfig({ ...l.config, views }), 300);
     }
   }
 }
