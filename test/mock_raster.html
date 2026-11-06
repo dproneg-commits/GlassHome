@@ -79,6 +79,8 @@ const hass = {
   for (const k of Object.keys(S)) S[k].last_updated = S[k].last_changed;
   const conf = await GlassHome.generate({ names: { viewer: 'Familie Proneg' } }, hass);
   const v = conf.views[Number(q.get('view') || 0)];
+  // ?temp=1: Temperaturkarte statt der ersten Fläche
+  if (q.get('temp') === '1') v.cards.splice(4, 0, { type: 'custom:glass-home-temperature', grid_options: { columns: 4, rows: 3 } });
   const lovelace = { config: conf, editMode: q.get('edit') === '1' };
   const mk = (list) => list.map((cc) => { const el = document.createElement(cc.type.replace('custom:', 'hui-').startsWith('hui-glass') ? cc.type.slice(7) : 'div'); el.setConfig?.(cc); el.config = cc; return el; });
   const cards = mk(v.cards);

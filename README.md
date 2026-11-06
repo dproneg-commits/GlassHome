@@ -93,12 +93,31 @@ tiles:                  # optional, sonst alle, die es gibt
   - openings            # Fenster, Türen, Garagentor
   - type: locks
     navigate: /dashboard-kunde/sicherheit   # optional: Seite statt Popup
+  - plugs               # Steckdosen
+  - presence            # Wer ist zuhause (person.*)
+plugs: [switch.steckdose_tv]   # optional: feste Auswahl, sonst automatisch erkannt
+temps: [sensor.wz_t]           # optional: Fühler für Ø, nur ohne Temperaturkarte
 ```
+
+- **Steckdosen und Temperatur selbst zusammenstellen:** Als Admin die Kachel antippen. Im Popup entfernt ✕ einen Eintrag, unten kommt mit „Hinzufügen“ ein neuer dazu. Gespeichert wird in der Kartenkonfiguration (nur im Glass-Raster). Ohne Geräte zeigen Admins eine leere Kachel zum Einrichten; Nicht-Admins sehen sie erst, wenn etwas ausgewählt ist.
+- Gibt es eine **Temperaturkarte** im Dashboard, zeigt die Statuskachel genau deren Durchschnitt, und Änderungen im Popup landen in der Temperaturkarte.
 
 - Tippen öffnet ein Popup mit allen Geräten der Art, nach Bereich gruppiert.
 - Lichter und Rollos im Popup: tippen schaltet, ziehen dimmt bzw. fährt. Oben „Alle aus“ bzw. „Alle auf / Stopp / Alle zu“.
 - Temperaturen und Fenster: tippen öffnet die HA-Detailansicht. Schlösser mit Zu-/Aufsperren.
 - Am Handy kommt das Popup von unten.
+
+## Temperatur
+
+```yaml
+type: custom:glass-home-temperature
+name: Temperatur          # optional
+entities:                 # optional, sonst alle Temperaturfühler und Thermostate mit Bereich
+  - sensor.wz_t
+  - climate.kueche
+```
+
+Zeigt den Durchschnitt groß und jeden Fühler darunter (tippen = Detailansicht). Admins wählen die Fühler über „Fühler wählen“ direkt in der Karte. Standardgröße 4 × 3.
 
 ## Energie
 
