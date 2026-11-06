@@ -1354,7 +1354,7 @@ class GlassHomePopup extends HTMLElement {
         <button data-tog="${id}">${on ? 'Ausschalten' : 'Einschalten'}</button></div>`;
     }
     if (k === 'presence') {
-      const where = st.state === 'home' ? 'Zuhause' : st.state === 'not_home' ? 'Unterwegs' : st.state;
+      const where = st.state === 'home' ? 'Zuhause' : st.state === 'not_home' ? 'Unterwegs' : (st.state === 'unknown' || st.state === 'unavailable') ? 'Unbekannt' : st.state;
       return `<div class="ln tap" data-mi="${id}"><span>${n}</span><b class="${st.state === 'home' ? 'ok' : ''}">${esc(where)}</b></div>`;
     }
     return '';
@@ -2088,8 +2088,7 @@ const GRID_STYLE = `
      max-width:var(--glass-home-max-width,1920px);margin:0 auto}
   .c{position:relative;min-width:0;min-height:0;grid-column:span var(--w);grid-row:span var(--h)}
   .c>*:not(.ed){display:block;height:100%;overflow:hidden;border-radius:var(--glass-home-radius,22px)}
-  .ed{position:absolute;top:6px;right:6px;left:6px;z-index:2;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;height:auto;pointer-events:none}
-  .ed button{pointer-events:auto}
+  .ed{position:absolute;inset:0;z-index:2;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:4px;padding:4px;box-sizing:border-box;background:rgba(10,12,14,.45);border-radius:var(--glass-home-radius,22px)}
   .ed{gap:2px}
   .ed .grp{display:flex;background:rgba(0,0,0,.6);border-radius:999px;pointer-events:auto}
   .ed .grp button{background:none;padding:6px 7px;font:600 11px/1 system-ui;min-width:24px}
