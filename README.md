@@ -149,6 +149,28 @@ max: 5
 - Farben nach Name: Bio braun, Rest grau, Gelber Sack gelb, Papier rot, Glas grün.
 - Die Kopfzeile zeigt zusätzlich „Morgen Biomüll“ bzw. „Heute …“.
 
+## Kalender
+
+```yaml
+type: custom:glass-home-calendar
+title: Kalender         # optional
+calendars:              # optional, sonst alle Kalender außer Müll
+  - calendar.familie
+  - calendar.arbeit
+colors:                 # optional, sonst feste Reihenfolge
+  calendar.familie: "#ffb74d"
+show_waste: false       # Müllkalender mitanzeigen
+show_past: true         # vergangene Termine von heute grau statt ausblenden
+tomorrow: true          # unten „Morgen: …“
+next_when_empty: true   # leerer Tag: nächsten Termin zeigen
+evening: 20             # ab 20 Uhr schon den nächsten Tag zeigen, 0 = aus
+week_start: 1           # 1 = Montag, 0 = Sonntag
+```
+
+- Zeigt immer einen Tag: ganztägige Termine als Chips, darunter die Termine mit Uhrzeit, der laufende hervorgehoben. Mit ‹ › blättert man tageweise.
+- Passt nicht alles in die Kachel, steht unten „+ n weitere“. Antippen öffnet die ganze Woche als Popup (‹ Heute › zum Blättern, auf dem Handy die Tage untereinander).
+- Alles ist im Karten-Editor (✎) einstellbar. Standardgröße 4 × 3.
+
 ## Einkauf & Termine
 
 ```yaml

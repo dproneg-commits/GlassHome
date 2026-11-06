@@ -46,6 +46,7 @@ const pad = (n) => String(n).padStart(2, '0');
 const dayS = (d) => { const x = new Date(); x.setDate(x.getDate() + d); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
 add('calendar.waste_collection_schedule_mull', 'off', { friendly_name: 'Müll', message: 'Biomüll', start_time: `${dayS(5)} 00:00:00` }, null, { reg: { platform: 'waste_collection_schedule' } });
 add('calendar.familie', 'off', { friendly_name: 'Familie' }, null);
+add('calendar.arbeit', 'off', { friendly_name: 'Arbeit' }, null);
 add('switch.steckdose_tv', 'on', { friendly_name: 'Steckdose TV', device_class: 'outlet' }, 'wohnzimmer');
 add('switch.kaffee_plug', 'off', { friendly_name: 'Kaffeemaschine Plug' }, 'kueche');
 add('person.dominik', 'home', { friendly_name: 'Dominik Proneg' }, null);
@@ -72,7 +73,12 @@ const hass = {
   },
   async callApi(m, path) {
     if (path.includes('waste_collection')) return [ev('Biomüll', 5), ev('Restmüll', 13), ev('Papier', 18), ev('Leicht-/Metallverpackung', 26)];
-    if (path.includes('familie')) return [{ summary: 'Papa', start: { date: dayS(0) }, end: { date: dayS(1) } }];
+    // Termine relativ zu heute: [Tag, Stunde, Minuten, Dauer h, Titel]
+    const at = (dd, hh, mm) => { const x = new Date(); x.setDate(x.getDate() + dd); x.setHours(hh, mm, 0, 0); return x.toISOString(); };
+    const t = (list) => list.map(([dd, hh, mm, du, su]) => ({ summary: su, start: { dateTime: at(dd, hh, mm) }, end: { dateTime: at(dd, hh + du, mm) } }));
+    if (path.includes('familie')) return [{ summary: 'Linas Geburtstag', start: { date: dayS(0) }, end: { date: dayS(1) } },
+      ...t([[0, 8, 0, 1, 'Zahnarzt Lina'], [0, 18, 0, 2, 'Fußball Training'], [0, 19, 30, 2, 'Pizza-Abend'], [1, 11, 0, 3, 'Oma besuchen'], [3, 16, 30, 1, 'Klavier'], [4, 19, 0, 2, 'Elternabend']])];
+    if (path.includes('arbeit')) return t([[0, 14, 30, 1, 'Meeting Projekt Huber'], [2, 9, 0, 1, 'Jour fixe'], [5, 10, 0, 2, 'Kundentermin']]);
     return [];
   },
 };
@@ -81,6 +87,7 @@ const hass = {
   const conf = await GlassHome.generate({ names: { viewer: 'Familie Proneg' } }, hass);
   const v = conf.views[Number(q.get('view') || 0)];
   // ?temp=1: Temperaturkarte statt der ersten Fläche
+  if (q.get('cal') === '1') v.cards.splice(4, 0, { type: 'custom:glass-home-calendar', show_waste: true, ...(q.get('evening') ? { evening: Number(q.get('evening')) } : {}), grid_options: { columns: 4, rows: 3 } });
   if (q.get('temp') === '1') v.cards.splice(4, 0, { type: 'custom:glass-home-temperature', grid_options: { columns: 4, rows: 6 } });
   const lovelace = { config: conf, editMode: q.get('edit') === '1' };
   const mk = (list) => list.map((cc) => { const el = document.createElement(cc.type.replace('custom:', 'hui-').startsWith('hui-glass') ? cc.type.slice(7) : 'div'); el.setConfig?.(cc); el.config = cc; return el; });
