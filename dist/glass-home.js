@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.3';
+const GH_VERSION = '0.8.4';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1187,13 +1187,25 @@ function candidates(hass, kind) {
 }
 
 // Temperaturkarte im Dashboard: ihre Fühler gelten auch für die Statuskachel
-const GH_SHARED = { temp: null };
+const GH_SHARED = { temp: null, open: null, live: new Set() };
 const setSharedTemp = (v) => { GH_SHARED.temp = v; window.dispatchEvent(new CustomEvent('gh-temps')); };
 
 // Beim Speichern baut HA die Karten neu; das offene Popup bleibt und geht an die neue Karte über
+function keepPopup(card, type, rebind) {
+  const pop = card._popup;
+  GH_SHARED.open = { type, pop, rebind };
+  // nach dem Neuaufbau übernimmt die neue Karte; findet sich keine, schließt das Popup
+  for (const t of [300, 1500, 4000]) setTimeout(() => {
+    if (GH_SHARED.open?.pop !== pop) return;
+    const next = [...GH_SHARED.live].find((c) => c._ghType === type && c.isConnected && c !== card);
+    if (next) adoptPopup(next, type);
+    else if (t === 4000) { GH_SHARED.open = null; pop.close('keine Karte nach dem Speichern'); }
+  }, t);
+}
+
 function adoptPopup(card, type) {
   const o = GH_SHARED.open;
-  if (!o || o.type !== type || card._popup || !o.pop.isConnected) return;
+  if (!o || o.type !== type || (card._popup && card._popup !== o.pop) || !o.pop.isConnected) return;
   GH_SHARED.open = null;
   card._popup = o.pop;
   o.rebind(card);
@@ -1223,8 +1235,13 @@ const STATUS_STYLE = `
   .tile>div{min-width:0}
   .tile b{font-size:16px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tile small{font-size:12px;color:var(--gh-mute);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  @container (max-width:900px){ .row{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))} }
-  @container (max-width:520px){ .row{grid-template-columns:1fr 1fr;gap:8px} .tile{padding:10px 12px} }
+  /* eng: eine Zeile, Kacheln kompakter, notfalls seitlich wischen */
+  @container (max-width:1100px){
+    .row{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(118px,1fr);gap:8px;overflow-x:auto;scrollbar-width:none}
+    .row::-webkit-scrollbar{display:none}
+    .tile{padding:8px 10px;gap:8px}.tile .ic{width:30px;height:30px;border-radius:10px}.tile b{font-size:15px}.tile small{font-size:11.5px}
+  }
+  @container (max-width:520px){ .row{grid-template-columns:1fr 1fr;grid-auto-flow:row;grid-auto-columns:auto;overflow:visible} .tile{padding:10px 12px} }
 `;
 
 class GlassHomeStatusCard extends HTMLElement {
@@ -1249,18 +1266,22 @@ class GlassHomeStatusCard extends HTMLElement {
   }
 
   connectedCallback() {
+    this._ghType = 'status';
+    GH_SHARED.live.add(this);
     this._onTemps = () => { this._sig = ''; if (this._hass) this.hass = this._hass; };
     window.addEventListener('gh-temps', this._onTemps);
+    if (this._hass) adoptPopup(this, 'status');
   }
 
   disconnectedCallback() {
+    GH_SHARED.live.delete(this);
     window.removeEventListener('gh-temps', this._onTemps);
     if (this._popup && this._saving) {
       const pop = this._popup, kind = pop.kind;
-      GH_SHARED.open = { type: 'status', pop, rebind: (c) => { pop.onedit = (ids) => c._saveList(kind, ids); } };
+      keepPopup(this, 'status', (c) => { pop.onedit = (ids) => c._saveList(kind, ids); });
       return;
     }
-    this._popup?.close();
+    this._popup?.close('Statuskarte entfernt');
   }
 
   getCardSize() { return 1; }
@@ -1289,7 +1310,7 @@ class GlassHomeStatusCard extends HTMLElement {
 
   _saveList(kind, ids) {
     this._saving = true;
-    setTimeout(() => { this._saving = false; }, 3000);
+    setTimeout(() => { this._saving = false; }, 8000);
     if (kind === 'climate' && GH_SHARED.temp) {
       GH_SHARED.temp.ids = ids;
       return saveCard(this, { type: 'custom:glass-home-temperature', patch: { entities: ids } });
@@ -1401,8 +1422,9 @@ class GlassHomePopup extends HTMLElement {
 
   disconnectedCallback() { window.removeEventListener('keydown', this._esc); }
 
-  close() {
+  close(why) {
     if (!this.isConnected) return;
+    if (why) console.info('[Glass Home] Popup geschlossen:', why);
     this.remove();
     this.onclose?.();
   }
@@ -1600,20 +1622,27 @@ class GlassHomeTemperatureCard extends HTMLElement {
 
   setConfig(config) {
     this._config = { ...(config || {}) };
-    this._sig = '';
+    this._sig = null;
     if (this.isConnected) setSharedTemp({ ids: this._config.entities, owner: this });
     if (this._hass) this._render();
   }
 
-  connectedCallback() { if (this._config) setSharedTemp({ ids: this._config.entities, owner: this }); }
+  connectedCallback() {
+    this._ghType = 'temperature';
+    GH_SHARED.live.add(this);
+    if (this._config) setSharedTemp({ ids: this._config.entities, owner: this });
+    if (this._hass) adoptPopup(this, 'temperature');
+  }
+
   disconnectedCallback() {
+    GH_SHARED.live.delete(this);
     if (GH_SHARED.temp?.owner === this) setSharedTemp(null);
     if (this._popup && this._saving) {
       const pop = this._popup;
-      GH_SHARED.open = { type: 'temperature', pop, rebind: (c) => { pop.onedit = (ids) => c._edit(ids); } };
+      keepPopup(this, 'temperature', (c) => { pop.onedit = (ids) => c._edit(ids); });
       return;
     }
-    this._popup?.close();
+    this._popup?.close('Temperaturkarte entfernt');
   }
 
   set hass(hass) {
@@ -1677,7 +1706,7 @@ GlassHomeTemperatureCard.prototype._edit = function (ids) {
   this._sig = '';
   this.hass = this._hass;
   this._saving = true;
-  setTimeout(() => { this._saving = false; }, 3000);
+  setTimeout(() => { this._saving = false; }, 8000);
   return saveCard(this, { self: true, patch: { entities: ids } });
 };
 
