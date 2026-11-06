@@ -37,7 +37,7 @@ strategy:
 
 Daraus entsteht bei jedem Laden:
 - **Start:** Navigation, Kopfzeile, Statuskacheln (nur wenn es Lichter, Rollos, Temperaturen, Fenster oder Schlösser gibt), darunter eine Raumkarte pro Bereich mit Geräten.
-- Gibt es keine Räume, aber PV: Energie direkt auf der Startseite. Müll kommt auf die Startseite, wenn vorhanden.
+- Gibt es keine Räume, aber PV: Energie direkt auf der Startseite. Müll kommt auf die Startseite, wenn vorhanden (Sensoren oder nur der Kalender von Waste Collection Schedule).
 - **Energie:** eigene Seite, wenn es PV/Energie und Räume gibt.
 
 Neue Geräte oder Bereiche erscheinen ohne Zutun. Für eigene Änderungen: ⋮ → „Kontrolle übernehmen“. Dann wird daraus ein normales Dashboard mit denselben Karten, das sich aber nicht mehr selbst anpasst.
