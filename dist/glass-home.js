@@ -478,6 +478,12 @@ const HEADER_STYLE = `
   .fc{display:flex;gap:10px;margin-top:8px;font-size:11.5px;color:var(--gh-mute)}.fc b{color:var(--gh-txt);font-weight:500}
   .wrap.nowx{grid-template-columns:1fr}
   .wrap{height:100%}.wrap>section{height:100%}
+  /* schmale Begrüßung: Hinweise in einer Zeile zum Wischen statt umbrechen */
+  @container (max-width:640px){
+    .alerts{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 90%,transparent)}
+    .alerts::-webkit-scrollbar{display:none}
+    .al{flex:none}
+  }
   @container (max-width:620px){
     .wrap{grid-template-columns:1fr}
     .hero{padding:14px 16px}.hero h1{font-size:24px}
