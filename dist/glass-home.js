@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.10';
+const GH_VERSION = '0.9.0';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -2288,6 +2288,280 @@ class GlassHomeAgendaCard extends HTMLElement {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Kalender: ein Tag als Karte, antippen zeigt die Woche               */
+/* ------------------------------------------------------------------ */
+const CAL_COLORS = ['#4dd0e1', '#ffb74d', '#b48cff', '#7ed08a', '#ff7a59', '#7ab8ff', '#f06292'];
+const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const dayStart = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const WEEKDAY_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+
+// Termine aller gewählten Kalender in einem Zeitraum, mit Farbe und Ganztags-Kennung
+async function loadEvents(h, cals, from, to, colorOf) {
+  const q = `start=${encodeURIComponent(from.toISOString())}&end=${encodeURIComponent(to.toISOString())}`;
+  const lists = await Promise.all(cals.map((id) => h.callApi('GET', `calendars/${id}?${q}`)
+    .then((evs) => evs.map((ev) => ({ ...ev, cal: id }))).catch(() => [])));
+  const at = (t) => new Date(t.dateTime || `${t.date}T00:00:00`);
+  return lists.flat().map((ev) => {
+    const allDay = !ev.start.dateTime;
+    return { ...ev, at: at(ev.start), until: at(ev.end), allDay, color: colorOf(ev) };
+  }).sort((a, b) => b.allDay - a.allDay || a.at - b.at);
+}
+// fällt der Termin (auch mehrtägig) auf diesen Tag?
+const onDay = (ev, d) => { const s = dayStart(d), e = addDays(s, 1); return ev.at < e && (ev.until > s || +ev.at === +s); };
+
+const CAL_STYLE = `
+  :host{container-type:inline-size}
+  .card{padding:14px 16px 12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;cursor:pointer;min-height:0}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+  .hd .cl{font-weight:400;color:var(--gh-mute);font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hd .nv{margin-left:auto;display:flex;gap:4px;flex:none}
+  .hd .nv button{width:30px;height:30px;border-radius:9px;border:0;background:rgba(255,255,255,.07);color:var(--gh-mute);font-size:16px;cursor:pointer}
+  .big{display:flex;align-items:baseline;gap:10px;margin:6px 0 8px;white-space:nowrap}
+  .big b{font-size:28px;font-weight:300}.big span{color:var(--gh-mute);font-size:13px;overflow:hidden;text-overflow:ellipsis}
+  .ad{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+  .ad span{font-size:12px;padding:4px 10px;border-radius:999px;background:color-mix(in srgb,var(--c) 22%,transparent);border:1px solid color-mix(in srgb,var(--c) 55%,transparent);white-space:nowrap}
+  .ls{flex:1;min-height:0;overflow:hidden}
+  .ev{display:grid;grid-template-columns:46px 4px minmax(0,1fr);gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .ev:last-child{border:0}
+  .ev time{font-size:13px;color:var(--gh-mute);text-align:right}
+  .ev i{height:30px;border-radius:2px;background:var(--c)}
+  .ev b{font-size:14px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev small{font-size:12px;color:var(--gh-mute);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev.now time{color:#ffcf8a}.ev.past{opacity:.45}
+  .ft{font-size:12.5px;color:var(--gh-mute);padding-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft b{color:var(--gh-txt);font-weight:600}
+  .msg{font-size:13.5px;color:var(--gh-mute);padding:6px 0}
+`;
+
+const WEEK_STYLE = `
+  :host{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center}
+  .bg{position:absolute;inset:0;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  .sheet{position:relative;width:min(1100px,calc(100vw - 32px));max-height:min(88vh,900px);display:flex;flex-direction:column;padding:16px 18px 18px;box-sizing:border-box;
+         background:var(--glass-home-popup,rgba(34,38,43,.96))}
+  .wt{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .wt h2{margin:0;font-size:20px;font-weight:600}.wt small{color:var(--gh-mute);font-size:13px}
+  .wt .x{margin-left:auto;display:flex;gap:6px}
+  .wt .x button{height:38px;min-width:38px;padding:0 12px;border-radius:12px;border:0;background:rgba(255,255,255,.08);color:var(--gh-txt);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--gh-mute);margin-bottom:12px}
+  .leg i{display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--c);margin-right:6px}
+  .cols{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;overflow:auto;min-height:0}
+  .col{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:8px;min-height:260px}
+  .col.today{border-color:rgba(255,183,77,.55);background:rgba(255,183,77,.06)}
+  .col h4{margin:0 0 8px;font-size:12px;color:var(--gh-mute);font-weight:600}
+  .col h4 b{display:block;font-size:20px;color:var(--gh-txt);font-weight:300}
+  .col.today h4 b{color:#ffcf8a}
+  .e{border-radius:9px;padding:6px 8px;margin-bottom:6px;font-size:12px;background:color-mix(in srgb,var(--c) 20%,transparent);border-left:3px solid var(--c);cursor:pointer}
+  .e b{display:block;font-weight:600;font-size:12.5px;overflow-wrap:anywhere}.e span{color:var(--gh-mute)}
+  .e.all{border:1px dashed color-mix(in srgb,var(--c) 70%,transparent)}
+  .e.past{opacity:.5}
+  .none{font-size:12px;color:var(--gh-dim)}
+  @media (max-width:700px){
+    :host{align-items:flex-end}
+    .sheet{width:100vw;border-radius:22px 22px 0 0}
+    .cols{grid-template-columns:1fr;grid-auto-rows:max-content;flex:1 1 auto}.col{min-height:auto}
+    .col h4{display:flex;gap:8px;align-items:baseline}.col h4 b{display:inline;font-size:16px}
+  }
+`;
+
+class GlassHomeCalendarCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-calendar-editor'); }
+  static getStubConfig() { return {}; }
+
+  setConfig(config) {
+    this._config = { show_past: true, tomorrow: true, next_when_empty: true, evening: 20, week_start: 1, show_waste: false, ...(config || {}) };
+    this._off = 0;
+    this._sig = null;
+    if (this._hass) this._refresh();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._config) return;
+    const sig = this._cals().map((id) => `${id}:${hass.states[id]?.last_updated}`).join('|');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._refresh();
+  }
+
+  connectedCallback() {
+    // jede Minute neu zeichnen (laufender Termin, Tageswechsel), alle 15 Minuten neu laden
+    this._tick = setInterval(() => (++this._n % 15 ? this._render() : this._refresh()), 60e3);
+    this._n = 0;
+  }
+  disconnectedCallback() { clearInterval(this._tick); this._week?.remove(); }
+
+  getCardSize() { return 4; }
+  getGridOptions() { return { columns: 4, rows: 3 }; }
+
+  _cals() {
+    const h = this._hass, c = this._config.calendars;
+    const all = Object.keys(h.states).filter((id) => id.startsWith('calendar.') && visible(h, id) && (this._config.show_waste || !isWasteCal(h, id)));
+    return (c?.length ? c : all).filter((id) => h.states[id]);
+  }
+
+  _color(ev) {
+    const h = this._hass, cals = this._cals(), set = this._config.colors || {};
+    if (set[ev.cal]) return set[ev.cal];
+    if (isWasteCal(h, ev.cal)) return wasteColor(ev.summary || '');
+    return CAL_COLORS[Math.max(0, cals.indexOf(ev.cal)) % CAL_COLORS.length];
+  }
+
+  _calName(id) { return (this._hass.states[id]?.attributes.friendly_name || id.split('.')[1]).replace(/^calendar\s*/i, ''); }
+
+  // angezeigter Tag: heute, ab der Abendstunde morgen, plus Blättern
+  _day() {
+    const now = new Date(), ev = Number(this._config.evening) || 0;
+    const base = ev && now.getHours() >= ev ? addDays(dayStart(now), 1) : dayStart(now);
+    return addDays(base, this._off);
+  }
+
+  async _refresh() {
+    const h = this._hass, cals = this._cals();
+    if (!cals.length) { this._events = []; this._render(); return; }
+    const from = addDays(dayStart(new Date()), -1);
+    this._events = await loadEvents(h, cals, from, addDays(from, 45), (e) => this._color(e));
+    this._loaded = +from;
+    this._render();
+  }
+
+  _render() {
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const h = this._hass, c = this._config, d = this._day(), now = new Date();
+    const evs = this._events || [], today = dayStart(now);
+    const diff = Math.round((d - today) / 864e5);
+    const label = diff === 0 ? 'Heute' : diff === 1 ? 'Morgen' : diff === -1 ? 'Gestern' : WEEKDAY_LONG[d.getDay()];
+    const sub = `${diff === 0 || diff === 1 || diff === -1 ? WEEKDAY_LONG[d.getDay()] + ', ' : ''}${d.getDate()}. ${MONTHS[d.getMonth()]}`;
+    const dayEvs = evs.filter((e) => onDay(e, d));
+    const all = dayEvs.filter((e) => e.allDay), timed = dayEvs.filter((e) => !e.allDay && (c.show_past || e.until > now));
+    const cals = this._cals();
+    let foot = '';
+    if (!dayEvs.length && c.next_when_empty) {
+      const nx = evs.find((e) => e.at >= addDays(d, 1));
+      if (nx) foot = `Nächster: <b>${esc(nx.summary)}</b> · ${WEEKDAY[nx.at.getDay()]}., ${nx.at.getDate()}.${nx.at.getMonth() + 1}.${nx.allDay ? '' : ' ' + hhmm(nx.at)}`;
+    } else if (c.tomorrow && diff === 0) {
+      const tm = evs.filter((e) => onDay(e, addDays(d, 1)));
+      if (tm.length) foot = `Morgen: <b>${esc(tm[0].summary)}</b>${tm[0].allDay ? '' : ' ' + hhmm(tm[0].at)}${tm.length > 1 ? ` · +${tm.length - 1}` : ''}`;
+    }
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${CAL_STYLE}</style>
+      <div class="card p">
+        <div class="hd">${icon('cal', 18)}<span>${esc(c.title || 'Kalender')}</span><span class="cl">${esc(cals.map((id) => this._calName(id)).join(' · '))}</span>
+          <span class="nv"><button data-n="-1" aria-label="Vorheriger Tag">‹</button><button data-n="1" aria-label="Nächster Tag">›</button></span></div>
+        <div class="big"><b>${label}</b><span>${esc(sub)}</span></div>
+        ${all.length ? `<div class="ad">${all.map((e) => `<span style="--c:${e.color}">${esc(e.summary)}</span>`).join('')}</div>` : ''}
+        <div class="ls">${!cals.length ? '<div class="msg">Kein Kalender gefunden.</div>'
+          : !dayEvs.length ? `<div class="msg">${diff === 0 ? 'Heute keine Termine' : 'Keine Termine'}</div>`
+          : timed.map((e) => `<div class="ev ${e.until <= now ? 'past' : e.at <= now ? 'now' : ''}" style="--c:${e.color}"><time>${hhmm(e.at)}</time><i></i>
+              <div><b>${esc(e.summary)}</b><small>${esc([this._calName(e.cal), e.at <= now && e.until > now ? 'bis ' + hhmm(e.until) : '', e.location || ''].filter(Boolean).join(' · '))}</small></div></div>`).join('')}</div>
+        <div class="ft">${foot}</div>
+      </div>`;
+    const root = this.shadowRoot;
+    root.querySelectorAll('.nv button').forEach((b) => b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this._off += Number(b.dataset.n);
+      this._render();
+    }));
+    root.querySelector('.card').addEventListener('click', () => this._openWeek());
+    // was nicht in die Fläche passt, zählt als „+ n weitere“
+    requestAnimationFrame(() => {
+      const ls = root.querySelector('.ls'), rows = [...root.querySelectorAll('.ev')];
+      if (!ls) return;
+      let hidden = 0;
+      for (const r of rows) if (r.offsetTop - ls.offsetTop + r.offsetHeight > ls.clientHeight + 1) { r.style.display = 'none'; hidden++; }
+      if (hidden) {
+        const ft = root.querySelector('.ft');
+        ft.innerHTML = `+ ${hidden} weitere · antippen für die Woche${ft.innerHTML ? ' · ' + ft.innerHTML : ''}`;
+      }
+    });
+  }
+
+  _openWeek() {
+    this._week?.remove();
+    const w = document.createElement('glass-home-week');
+    w.card = this;
+    w.start = this._weekStart(this._day());
+    document.body.appendChild(w);
+    this._week = w;
+    w.load();
+  }
+
+  _weekStart(d) {
+    const ws = Number(this._config.week_start) || 0, x = dayStart(d);
+    return addDays(x, -((x.getDay() - ws + 7) % 7));
+  }
+}
+
+class GlassHomeWeekPopup extends HTMLElement {
+  connectedCallback() {
+    this._esc = (ev) => ev.key === 'Escape' && this.remove();
+    window.addEventListener('keydown', this._esc);
+  }
+  disconnectedCallback() { window.removeEventListener('keydown', this._esc); }
+
+  async load() {
+    const c = this.card, h = c._hass, cals = c._cals();
+    this._render(null);
+    this._evs = cals.length ? await loadEvents(h, cals, this.start, addDays(this.start, 7), (e) => c._color(e)) : [];
+    this._render(this._evs);
+  }
+
+  _render(evs) {
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const c = this.card, s = this.start, e7 = addDays(s, 6), now = new Date(), today = dayStart(now);
+    const thisWeek = +c._weekStart(today) === +s;
+    const cals = c._cals();
+    const range = s.getMonth() === e7.getMonth() ? `${s.getDate()}. – ${e7.getDate()}. ${MONTHS[s.getMonth()]}` : `${s.getDate()}. ${MONTHS[s.getMonth()]} – ${e7.getDate()}. ${MONTHS[e7.getMonth()]}`;
+    const days = Array.from({ length: 7 }, (_, i) => addDays(s, i));
+    this.shadowRoot.innerHTML = `<style>${GH_STYLE}${WEEK_STYLE}</style><div class="bg"></div>
+      <div class="sheet p">
+        <div class="wt"><div><h2>${thisWeek ? 'Diese Woche' : 'Woche'}</h2><small>${range}</small></div>
+          <span class="x"><button data-w="-7" aria-label="Vorige Woche">‹</button><button data-w="0">Heute</button><button data-w="7" aria-label="Nächste Woche">›</button><button class="cls" aria-label="Schließen">✕</button></span></div>
+        <div class="leg">${cals.map((id) => `<span><i style="--c:${isWasteCal(c._hass, id) ? '#a3a9b1' : c._color({ cal: id })}"></i>${esc(c._calName(id))}</span>`).join('')}</div>
+        <div class="cols">${days.map((d) => {
+          const list = (evs || []).filter((e) => onDay(e, d));
+          return `<div class="col ${+d === +today ? 'today' : ''}"><h4>${WEEKDAY[d.getDay()]}${+d === +today ? ' · heute' : ''}<b>${d.getDate()}</b></h4>
+            ${evs === null ? '<div class="none">…</div>' : list.length ? list.map((e) => `<div class="e ${e.allDay ? 'all' : ''} ${e.until <= now ? 'past' : ''}" style="--c:${e.color}" data-cal="${esc(e.cal)}">
+              <b>${esc(e.summary)}</b><span>${e.allDay ? 'ganztägig' : hhmm(e.at) + (e.until - e.at > 0 && e.until - e.at < 864e5 ? ' – ' + hhmm(e.until) : '')}</span></div>`).join('') : '<div class="none">–</div>'}</div>`;
+        }).join('')}</div>
+      </div>`;
+    const r = this.shadowRoot;
+    // Handy: Tage untereinander, zum heutigen Tag scrollen
+    const cols = r.querySelector('.cols'), td = r.querySelector('.col.today');
+    if (td && innerWidth < 700) cols.scrollTop = td.offsetTop - cols.offsetTop;
+    r.querySelector('.bg').addEventListener('click', () => this.remove());
+    r.querySelector('.cls').addEventListener('click', () => this.remove());
+    r.querySelectorAll('[data-w]').forEach((b) => b.addEventListener('click', () => {
+      const n = Number(b.dataset.w);
+      this.start = n ? addDays(this.start, n) : c._weekStart(today);
+      this.load();
+    }));
+    r.querySelectorAll('.e[data-cal]').forEach((el) => el.addEventListener('click', () => {
+      this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: el.dataset.cal }, bubbles: true, composed: true }));
+      this.remove();
+    }));
+  }
+}
+
+class GlassHomeCalendarEditor extends GlassHomeFormEditor {
+  static schema = [
+    { name: 'title', selector: { text: {} } },
+    { name: 'calendars', selector: { entity: { multiple: true, domain: 'calendar' } } },
+    { name: 'show_waste', selector: { boolean: {} } },
+    { name: 'show_past', selector: { boolean: {} } },
+    { name: 'tomorrow', selector: { boolean: {} } },
+    { name: 'next_when_empty', selector: { boolean: {} } },
+    { name: 'evening', selector: { number: { min: 0, max: 23, step: 1, mode: 'box' } } },
+    { name: 'week_start', selector: { select: { mode: 'dropdown', options: [{ value: 1, label: 'Montag' }, { value: 0, label: 'Sonntag' }] } } },
+  ];
+  static labels = {
+    title: 'Titel (Standard: Kalender)', calendars: 'Kalender (leer = alle)', show_waste: 'Müll-Termine zeigen', show_past: 'Vergangene Termine zeigen (abgedunkelt)',
+    tomorrow: 'Vorschau „Morgen: …“', next_when_empty: 'Bei leerem Tag den nächsten Termin zeigen', evening: 'Ab dieser Stunde schon den nächsten Tag zeigen (0 = aus)', week_start: 'Woche beginnt am',
+  };
+  static defaults = { show_past: true, tomorrow: true, next_when_empty: true, evening: 20, week_start: 1, show_waste: false };
+}
+
 class GlassHomeAgendaEditor extends GlassHomeFormEditor {
   static schema = [
     { name: 'title', selector: { text: {} } },
@@ -2744,6 +3018,9 @@ if (!customElements.get('glass-home-rooms')) customElements.define('glass-home-r
 if (!customElements.get('glass-home-rooms-editor')) customElements.define('glass-home-rooms-editor', GlassHomeRoomsEditor);
 if (!customElements.get('glass-home-temperature')) customElements.define('glass-home-temperature', GlassHomeTemperatureCard);
 if (!customElements.get('glass-home-temperature-editor')) customElements.define('glass-home-temperature-editor', GlassHomeTemperatureEditor);
+if (!customElements.get('glass-home-calendar')) customElements.define('glass-home-calendar', GlassHomeCalendarCard);
+if (!customElements.get('glass-home-calendar-editor')) customElements.define('glass-home-calendar-editor', GlassHomeCalendarEditor);
+if (!customElements.get('glass-home-week')) customElements.define('glass-home-week', GlassHomeWeekPopup);
 if (!customElements.get('glass-home-grid')) customElements.define('glass-home-grid', GlassHomeGridView);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
@@ -2756,6 +3033,7 @@ for (const card of [
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
   { type: 'glass-home-temperature', name: 'Glass Home – Temperatur', description: 'Räume mit Temperatur, Luftfeuchte und Farbbalken, Warnung bei hoher Feuchte. Die Statuskachel Temperatur zeigt den Durchschnitt.' },
+  { type: 'glass-home-calendar', name: 'Glass Home – Kalender', description: 'Ein Tag mit Terminen und ganztägigen Einträgen, ‹ › blättert. Antippen zeigt die ganze Woche.' },
   { type: 'glass-home-scenes', name: 'Glass Home – Szenen', description: 'Szenen und Skripte als Kacheln, dazu „Alles aus“.' },
   { type: 'glass-home-rooms', name: 'Glass Home – Räume-Liste', description: 'Alle Räume untereinander mit Temperatur, Feuchte und Licht. Tippen öffnet die Raumübersicht.' },
   { type: 'glass-home-room', name: 'Glass Home – Raum', description: 'Ein Bereich mit Temperatur, Licht- und Rollo-Regler. Geräte kommen automatisch aus dem Bereich.' },
