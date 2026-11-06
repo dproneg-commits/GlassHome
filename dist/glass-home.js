@@ -1446,12 +1446,20 @@ const ENERGY_STYLE = `
   .lg{display:flex;gap:14px;font-size:12px;color:var(--gh-mute);margin-top:4px}
   .lg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
   .msg{padding:14px 16px;font-size:13px;color:var(--gh-mute);line-height:1.45}
+  /* im Glass-Raster füllt das Diagramm die restliche Höhe der Fläche */
+  .en{display:flex;flex-direction:column;height:100%;min-height:0}
+  .en .chart{flex:1;min-height:0}
+  .en .plot{flex:1;min-height:140px;height:auto}
   @container (max-width:620px){
     .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
     /* eine übrige Kachel nutzt die ganze Reihe */
     .tile:last-child:nth-child(odd){grid-column:1/-1}
     .tile{padding:10px 12px}.tile b{font-size:16px}
     .plot{height:170px}
+  }
+  @container (max-width:460px){
+    .tile{min-height:56px;padding:8px 10px;gap:8px}.tile .ic{width:32px;height:32px}.tile b{font-size:15px}
+    .tile small{font-size:11px}.chart{padding:12px}.sum span{font-size:11.5px;padding:3px 9px}
   }
 `;
 
@@ -1621,9 +1629,9 @@ class GlassHomeEnergyCard extends HTMLElement {
       </section>`;
     }
 
-    this.shadowRoot.innerHTML = `${style}
+    this.shadowRoot.innerHTML = `${style}<div class="en">
       <div class="tiles">${tiles.map((t) => `<div class="tile p" style="--c:${t.c}"><span class="ic">${icon(t.i, 20)}</span><div><b>${esc(t.v)}</b><small>${esc(t.l)}</small></div></div>`).join('')}</div>
-      ${chart}`;
+      ${chart}</div>`;
   }
 }
 
@@ -2017,7 +2025,7 @@ class GlassHomeGridView extends HTMLElement {
       const cell = document.createElement('div');
       cell.className = 'c';
       // Tablet hochkant: Drittel -> Hälfte; Handy: Kacheln bis 2 breit halb, sonst ganz
-      cell.style.cssText = `--w:${w};--h:${h};--wm:${w === 4 ? 6 : w === 8 ? 12 : w};--ws:${w <= 2 ? 6 : 12}`;
+      cell.style.cssText = `--w:${w};--h:${h};--wm:${w === 4 ? 6 : w === 8 ? 12 : w === 9 ? 8 : w === 3 ? 4 : w};--ws:${w <= 2 ? 6 : 12}`;
       if (this._hass) card.hass = this._hass;
       cell.appendChild(card);
       if (edit) {
