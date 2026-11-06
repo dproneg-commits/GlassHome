@@ -15,7 +15,7 @@ Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-
 1. `dist/glass-home.js` nach `/config/www/glass-home/glass-home.js` kopieren.
 2. Einstellungen → Dashboards → Ressourcen → `/local/glass-home/glass-home.js` (JavaScript-Modul).
 3. `themes/glass_home_graphit.yaml` nach `/config/themes/` und in `configuration.yaml`:
-   `frontend: themes: !include_dir_merge_named themes`, dann HA neu starten und im Profil das Theme wählen.
+   `frontend: themes: !include_dir_merge_named themes`, dann HA neu starten. Das Theme **nicht** im Profil oder als HA-Standard setzen: Die Glass-Ansichten tragen `theme: glass_home_graphit` selbst, so gilt es nur im Dashboard, für alle Benutzer.
 4. Karte hinzufügen → „Glass Home – Raum“ → Bereich wählen.
 
 ## Automatisches Dashboard (Strategie)
@@ -29,6 +29,7 @@ strategy:
   names:                     # optional, Begrüßung je Benutzer (sonst Vorname des Benutzers)
     viewer: Familie Huber
   kiosk: [viewer]            # optional, ohne HA-Kopfzeile und Seitenleiste für diese Benutzer
+  theme: glass_home_graphit  # optional, Design nur für dieses Dashboard (Standard: Graphit, wenn installiert; false = keins)
   layout: sections           # optional, statt Glass-Raster das HA-Abschnittslayout
   title: Zuhause             # optional
   hide_areas: [garage]       # optional, Bereichs-IDs ausblenden
