@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.6';
+const GH_VERSION = '0.8.7';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1177,7 +1177,7 @@ function candidates(hass, kind) {
   const name = (id) => hass.states[id].attributes.friendly_name || id;
   const ok = kind === 'plugs'
     ? (id) => id.startsWith('switch.')
-    : (id) => id.startsWith('climate.') || (id.startsWith('sensor.') && hass.states[id].attributes.device_class === 'temperature');
+    : (id) => id.startsWith('climate.') || (id.startsWith('sensor.') && ['temperature', 'humidity'].includes(hass.states[id].attributes.device_class));
   return Object.keys(hass.states).filter((id) => ok(id) && visible(hass, id))
     .map((id) => {
       const a = entityArea(hass, id);
@@ -1226,8 +1226,8 @@ const KIND_TITLE = { lights: 'Lichter', covers: 'Rollos', climate: 'Temperaturen
 const ALL_KINDS = ['openings', 'lights', 'covers', 'plugs', 'presence', 'climate', 'locks'];
 
 const STATUS_STYLE = `
-  :host{container-type:inline-size}
-  .row{display:grid;grid-template-columns:repeat(var(--n,4),minmax(0,1fr));gap:10px}
+  :host{container-type:inline-size;height:100%}
+  .row{height:100%;box-sizing:border-box;display:grid;grid-template-columns:repeat(var(--n,4),minmax(0,1fr));gap:10px}
   .tile{display:flex;align-items:center;gap:12px;padding:10px 14px;min-height:62px;cursor:pointer;user-select:none;-webkit-user-select:none;transition:transform .12s,border-color .3s}
   .tile:active{transform:scale(.97)}
   .tile .ic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:none;
@@ -1596,23 +1596,35 @@ GlassHomePopup.prototype._renderAdd = function () {
 /* Temperatur: selbst gewählte Fühler mit Durchschnitt                 */
 /* ------------------------------------------------------------------ */
 const TEMP_STYLE = `
-  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;overflow:auto}
-  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:8px}
-  .hd button{margin-left:auto;height:30px;padding:0 12px;border-radius:10px;border:0;background:rgba(255,255,255,.08);color:var(--gh-txt);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
-  .av{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
-  .av b{font-size:34px;font-weight:300;line-height:1}
-  .av small{color:var(--gh-mute);font-size:12.5px}
-  .tl{display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;cursor:pointer}
-  .tl:last-child{border-bottom:0}
-  .tl span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .tl small{color:var(--gh-mute);font-size:12px}
-  .tl b{font-weight:600;white-space:nowrap}
+  :host{container-type:inline-size}
+  .card{padding:14px 14px 12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;overflow:auto;gap:8px}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:16px;padding:0 2px 2px}
+  .hd .ti{color:#7ab8ff;display:flex}
+  .hd small{margin-left:auto;font-weight:400;font-size:12.5px;color:var(--gh-mute);white-space:nowrap}
+  .hd button{width:30px;height:30px;border-radius:9px;border:0;background:none;color:var(--gh-mute);cursor:pointer;display:grid;place-items:center;flex:none}
+  .hd button:hover{background:rgba(255,255,255,.08)}
+  .tr{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;column-gap:12px;padding:10px 14px;border-radius:14px;
+      background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);cursor:pointer;transition:border-color .3s}
+  .tr.warn{border-color:rgba(255,183,77,.6);box-shadow:0 0 0 3px rgba(255,183,77,.06)}
+  .tr .ic{color:var(--gh-mute);display:flex;justify-content:center}
+  .tr .nm{min-width:0}
+  .tr .nm b{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px}
+  .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#4dd0e1,#7ed08a 45%,#ffb74d 75%,#ff7a59)}
+  .tr .v{text-align:right;line-height:1.1}
+  .tr .v b{display:block;font-size:24px;font-weight:300}
+  .tr .v small{font-size:12.5px;color:var(--gh-mute)}
+  .tr.warn .v small{color:#ffb74d;font-weight:600}
   .msg{font-size:13px;color:var(--gh-mute);line-height:1.45}
+  @container (max-width:300px){ .tr{padding:8px 10px;column-gap:8px} .tr .v b{font-size:20px} }
 `;
 
+
+const isHum = (hass, id) => id.startsWith('sensor.') && hass.states[id]?.attributes.device_class === 'humidity';
+const humOf = (hass, id) => { const v = parseFloat(hass.states[id]?.state); return isNaN(v) ? null : v; };
 const tempOf = (hass, id) => {
   const st = hass.states[id];
-  if (!st) return null;
+  if (!st || isHum(hass, id)) return null;
   const v = id.startsWith('climate.') ? st.attributes.current_temperature : parseFloat(st.state);
   return v == null || isNaN(v) ? null : Number(v);
 };
@@ -1651,38 +1663,60 @@ class GlassHomeTemperatureCard extends HTMLElement {
     adoptPopup(this, 'temperature');
     if (this._popup) this._popup.hass = hass;
     if (!this._config) return;
-    const sig = this._ids().map((id) => `${id}|${tempOf(hass, id)}`).join(';');
+    const sig = JSON.stringify(this._rooms().map((r) => [r.key, r.temp, r.hum]));
     if (sig === this._sig) return;
     this._sig = sig;
     this._render();
   }
 
-  getCardSize() { return 4; }
-  getGridOptions() { return { columns: 4, rows: 3 }; }
+  getCardSize() { return 6; }
+  getGridOptions() { return { columns: 4, rows: 6 }; }
 
-  // gewählte Fühler, sonst alle Innen-Temperaturen (mit Bereich)
+  // gewählte Fühler, sonst alle Innen-Temperaturen und -Feuchten (mit Bereich)
   _ids() {
     if (Array.isArray(this._config.entities)) return this._config.entities.filter((id) => this._hass.states[id]);
-    return collect(this._hass, 'climate').flatMap((g) => g.ids)
-      .filter((id) => id.startsWith('climate.') || this._hass.states[id].attributes.device_class === 'temperature');
+    return collect(this._hass, 'climate').flatMap((g) => g.ids);
+  }
+
+  // je Raum (Bereich) eine Zeile: Ø Temperatur, Feuchte (gewählt oder aus dem Bereich), sonst je Fühler
+  _rooms() {
+    const h = this._hass, ids = this._ids(), map = new Map();
+    for (const id of ids) {
+      const ar = entityArea(h, id);
+      const key = ar || id;
+      if (!map.has(key)) map.set(key, { key, area: ar, name: ar ? h.areas?.[ar]?.name || ar : h.entities?.[id]?.name || h.states[id].attributes.friendly_name || id, t: [], hm: [], ids: [] });
+      const r = map.get(key);
+      r.ids.push(id);
+      if (isHum(h, id)) r.hm.push(id); else r.t.push(id);
+    }
+    return [...map.values()].map((r) => {
+      let hm = r.hm;
+      // keine Feuchte gewählt: Feuchtesensor aus demselben Bereich nehmen
+      if (!hm.length && r.area) hm = collect(h, 'climate').find((g) => g.area === r.area)?.ids.filter((id) => isHum(h, id)) || [];
+      const temp = avg(r.t.map((id) => tempOf(h, id)).filter((v) => v != null));
+      const hum = avg(hm.map((id) => humOf(h, id)).filter((v) => v != null));
+      return { ...r, temp, hum, main: r.t[0] || hm[0] || r.ids[0] };
+    });
   }
 
   _render() {
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-    const h = this._hass, ids = this._ids();
-    const vals = ids.map((id) => tempOf(h, id)).filter((v) => v != null);
-    const a = avg(vals);
+    const h = this._hass, rooms = this._rooms();
     const admin = !!h.user?.is_admin;
-    const name = (id) => h.entities?.[id]?.name || h.states[id].attributes.friendly_name || id;
-    const area = (id) => { const ar = entityArea(h, id); return ar ? h.areas?.[ar]?.name || ar : ''; };
+    const warnAt = Number(this._config.humidity_warn ?? 60);
+    const ri = (name) => { const i = roomIcon(name); return i === 'home' ? 'temp' : i; };
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${TEMP_STYLE}</style>
       <div class="card p">
-        <div class="hd">${icon('temp', 18)}<span>${esc(this._config.name || 'Temperatur')}</span>${admin ? '<button class="ed">Fühler wählen</button>' : ''}</div>
-        ${ids.length ? `<div class="av"><b>${a != null ? fmt(a) + '°' : '–'}</b><small>Ø aus ${vals.length} ${vals.length === 1 ? 'Fühler' : 'Fühlern'}</small></div>
-          ${ids.map((id) => { const v = tempOf(h, id); return `<div class="tl" data-id="${esc(id)}"><span>${esc(name(id))} <small>${esc(area(id))}</small></span><b>${v != null ? fmt(v) + '°' : '–'}</b></div>`; }).join('')}`
-          : `<div class="msg">Noch keine Temperaturfühler. ${admin ? '„Fühler wählen“ antippen.' : ''}</div>`}
+        <div class="hd"><span class="ti">${icon('temp', 18)}</span><span>${esc(this._config.name || 'Räume')}</span><small>Temperatur · Luftfeuchte</small>${admin ? `<button class="ed" title="Fühler wählen" aria-label="Fühler wählen"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg></button>` : ''}</div>
+        ${rooms.length ? rooms.map((r) => {
+          const p = r.temp == null ? 0 : Math.max(4, Math.min(100, ((r.temp - 15) / 12) * 100));
+          const warn = r.hum != null && r.hum >= warnAt;
+          return `<div class="tr ${warn ? 'warn' : ''}" data-id="${esc(r.main)}"><span class="ic">${icon(ri(r.name), 19)}</span>
+            <div class="nm"><b>${esc(r.name)}</b><div class="bar"><i style="width:${p}%;background-size:${p ? 10000 / p : 100}% 100%"></i></div></div>
+            <div class="v"><b>${r.temp != null ? fmt(r.temp) + '°' : '–'}</b><small>${r.hum != null ? Math.round(r.hum) + ' %' + (warn ? ' ⚠' : '') : '–'}</small></div></div>`;
+        }).join('') : `<div class="msg">Noch keine Temperaturfühler. ${admin ? 'Über den Stift oben rechts auswählen.' : ''}</div>`}
       </div>`;
-    this.shadowRoot.querySelectorAll('.tl').forEach((el) => el.addEventListener('click', () => {
+    this.shadowRoot.querySelectorAll('.tr').forEach((el) => el.addEventListener('click', () => {
       this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: el.dataset.id }, bubbles: true, composed: true }));
     }));
     this.shadowRoot.querySelector('.ed')?.addEventListener('click', () => this._open());
@@ -1712,9 +1746,10 @@ GlassHomeTemperatureCard.prototype._edit = function (ids) {
 class GlassHomeTemperatureEditor extends GlassHomeFormEditor {
   static schema = [
     { name: 'name', selector: { text: {} } },
-    { name: 'entities', selector: { entity: { multiple: true, filter: [{ domain: 'sensor', device_class: 'temperature' }, { domain: 'climate' }] } } },
+    { name: 'entities', selector: { entity: { multiple: true, filter: [{ domain: 'sensor', device_class: 'temperature' }, { domain: 'sensor', device_class: 'humidity' }, { domain: 'climate' }] } } },
+    { name: 'humidity_warn', selector: { number: { min: 40, max: 90, step: 1, unit_of_measurement: '%', mode: 'box' } } },
   ];
-  static labels = { name: 'Titel (Standard: Temperatur)', entities: 'Temperaturfühler (leer = alle mit Bereich)' };
+  static labels = { name: 'Titel (Standard: Räume)', entities: 'Fühler für Temperatur und Feuchte (leer = alle mit Bereich)', humidity_warn: 'Feuchte-Warnung ab (Standard 60 %)' };
   static defaults = {};
 }
 
@@ -2653,7 +2688,7 @@ for (const card of [
   { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Tageskurve aus dem Energie-Dashboard.' },
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
-  { type: 'glass-home-temperature', name: 'Glass Home – Temperatur', description: 'Selbst gewählte Temperaturfühler mit Durchschnitt. Die Statuskachel Temperatur zeigt denselben Durchschnitt.' },
+  { type: 'glass-home-temperature', name: 'Glass Home – Temperatur', description: 'Räume mit Temperatur, Luftfeuchte und Farbbalken, Warnung bei hoher Feuchte. Die Statuskachel Temperatur zeigt den Durchschnitt.' },
   { type: 'glass-home-scenes', name: 'Glass Home – Szenen', description: 'Szenen und Skripte als Kacheln, dazu „Alles aus“.' },
   { type: 'glass-home-rooms', name: 'Glass Home – Räume-Liste', description: 'Alle Räume untereinander mit Temperatur, Feuchte und Licht. Tippen öffnet die Raumübersicht.' },
   { type: 'glass-home-room', name: 'Glass Home – Raum', description: 'Ein Bereich mit Temperatur, Licht- und Rollo-Regler. Geräte kommen automatisch aus dem Bereich.' },

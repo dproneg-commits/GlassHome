@@ -111,13 +111,15 @@ temps: [sensor.wz_t]           # optional: Fühler für Ø, nur ohne Temperaturk
 
 ```yaml
 type: custom:glass-home-temperature
-name: Temperatur          # optional
-entities:                 # optional, sonst alle Temperaturfühler und Thermostate mit Bereich
+name: Räume               # optional
+humidity_warn: 60         # optional, Feuchte-Warnung ab %
+entities:                 # optional, sonst alle Temperatur-/Feuchtesensoren und Thermostate mit Bereich
   - sensor.wz_t
+  - sensor.wz_h
   - climate.kueche
 ```
 
-Zeigt den Durchschnitt groß und jeden Fühler darunter (tippen = Detailansicht). Admins wählen die Fühler über „Fühler wählen“ direkt in der Karte. Standardgröße 4 × 3.
+Je Raum eine Zeile mit Raumsymbol, Farbbalken nach Temperatur (15–27 °C), Temperatur groß und Luftfeuchte darunter. Ab 60 % Feuchte wird die Zeile orange mit ⚠. Ist für einen Raum keine Feuchte gewählt, wird der Feuchtesensor aus dem Bereich genommen. Admins wählen die Fühler über den Stift oben rechts. Standardgröße 4 × 6. Die Statuskachel Temperatur zeigt den Durchschnitt derselben Fühler.
 
 ## Energie
 
