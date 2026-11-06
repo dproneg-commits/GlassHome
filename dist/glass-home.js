@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.7';
+const GH_VERSION = '0.8.8';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -2591,6 +2591,12 @@ class GlassHomeDashboardStrategy extends HTMLElement {
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
+    // Design nur für dieses Dashboard (nicht HA-weit): Graphit, wenn installiert, sonst theme: aus der Strategie
+    const themeOf = () => {
+      if (c.theme === false) return {};
+      const t = c.theme || 'glass_home_graphit';
+      return !c.theme && !hass.themes?.themes?.[t] ? {} : { theme: t };
+    };
     const statusKinds = ALL_KINDS;
     const hasStatus = statusKinds.some((k) => summarize(hass, k));
     const full = { columns: 'full' };
@@ -2620,7 +2626,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
       else areas.push(...roomCards.map((r) => gc(r, 4, 3)));
       if (mods.waste) areas.push(gc(waste, 4, 3));
       if (!areas.length) areas.push(gc(empty, 12, 2));
-      const gview = (title, path, icon, list) => ({ title, path, icon, type: 'custom:glass-home-grid', cards: list });
+      const gview = (title, path, icon, list) => ({ title, path, icon, ...themeOf(), type: 'custom:glass-home-grid', cards: list });
       const gviews = [gview('Start', 'start', 'mdi:home', [...cards, ...areas])];
       if (mods.energy) gviews.push(gview('Energie', 'energie', 'mdi:lightning-bolt', [gc(nav, 12, 1), gc(energy, 12, 6)]));
       return { title: c.title || 'Zuhause', views: gviews };
@@ -2641,7 +2647,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     if (roomCards.length) startSections.push(section([...roomCards, ...extra]));
     else if (extra.length) startSections.push(section(extra));
 
-    const view = (title, path, icon, sections) => ({ title, path, icon, type: 'sections', max_columns: 4, sections });
+    const view = (title, path, icon, sections) => ({ title, path, icon, ...themeOf(), type: 'sections', max_columns: 4, sections });
     const views = [view('Start', 'start', 'mdi:home', startSections)];
     if (mods.energy && !energyOnStart) {
       views.push(view('Energie', 'energie', 'mdi:lightning-bolt', [section([nav, { ...energy, grid_options: full }])]));
