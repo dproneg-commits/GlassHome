@@ -483,6 +483,10 @@ const HEADER_STYLE = `
   .wk7{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:2px;text-align:center}
   .wk7 span{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border-radius:10px;min-width:0}
   .wk7 span.td{background:rgba(255,255,255,.07)}
+  .wx.wk{container-type:inline-size}.wk7 u{text-decoration:none}.wk7 s{display:none;text-decoration:none}
+  /* schmale Wetterfläche (z. B. 3 Spalten mit Seitenleiste): nur Höchstwert, kurzer Tagname */
+  @container (max-width:300px){.wk7 i,.wk7 u{display:none}.wk7 s{display:inline}.wk7 b{font-size:12px}
+    .wk .nw .t{font-size:30px}.wk .nw small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wk .nw>div{min-width:0}.wx.wk{gap:6px}}
   .wk7 em{font-style:normal;font-size:11px;color:var(--gh-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .wk7 b{font-size:13px;font-weight:600;white-space:nowrap}.wk7 i{font-style:normal;font-size:11px;font-weight:400;color:var(--gh-mute)}
   .wrap{height:100%}.wrap>section{height:100%}
@@ -661,10 +665,10 @@ class GlassHomeHeaderCard extends HTMLElement {
       if (n > 3) {
         // Wochenleiste: heute + folgende Tage, je Symbol, Höchst- und Tiefstwert
         const today = new Date().toDateString();
-        const days = (this._forecast || []).filter((f) => new Date(f.datetime).toDateString() >= today || new Date(f.datetime) > new Date()).slice(0, n);
+        const days = (this._forecast || []).filter((f) => dayStart(new Date(f.datetime)) >= dayStart(new Date())).slice(0, n);
         const strip = days.map((f) => {
           const d = new Date(f.datetime), isToday = d.toDateString() === today;
-          return `<span class="${isToday ? 'td' : ''}"><em>${isToday ? 'Heute' : WEEKDAY[d.getDay()]}</em>${icon(WX_ICON[f.condition] || 'cloudsun', 20)}
+          return `<span class="${isToday ? 'td' : ''}"><em>${isToday ? `<u>Heute</u><s>${WEEKDAY[d.getDay()]}</s>` : WEEKDAY[d.getDay()]}</em>${icon(WX_ICON[f.condition] || 'cloudsun', 20)}
             <b>${Math.round(f.temperature)}°${f.templow != null ? `<i> ${Math.round(f.templow)}°</i>` : ''}</b></span>`;
         }).join('');
         wxHtml = `<section class="wx wk p"><div class="nw">${icon(WX_ICON[wx.state] || 'cloudsun', 44)}<div>${now}</div></div>
