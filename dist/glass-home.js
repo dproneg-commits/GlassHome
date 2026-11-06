@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.7.1';
+const GH_VERSION = '0.7.2';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -604,7 +604,9 @@ class GlassHomeHeaderCard extends HTMLElement {
     const h = this._hass, c = this._config;
     const un = h.user?.name || '';
     const first = /^familie /i.test(un) ? un : un.split(' ')[0];
-    const who = c.name || (first ? first.charAt(0).toUpperCase() + first.slice(1) : '');
+    // names: { viewer: 'Familie Huber' } begrüßt einzelne Benutzer mit eigenem Text (z. B. ein gemeinsames Wandtablet)
+    const byUser = Object.entries(c.names || {}).find(([k]) => k.toLowerCase() === un.toLowerCase())?.[1];
+    const who = byUser || c.name || (first ? first.charAt(0).toUpperCase() + first.slice(1) : '');
     const alerts = c.show_alerts ? this._alerts() : [];
     const shown = alerts.slice(0, 4), rest = alerts.length - shown.length;
     const wxId = this._weatherId(), wx = wxId && h.states[wxId];
@@ -1837,7 +1839,7 @@ class GlassHomeDashboardStrategy extends HTMLElement {
     const hasStatus = statusKinds.some((k) => summarize(hass, k));
     const full = { columns: 'full' };
     const nav = { type: 'custom:glass-home-nav', grid_options: full };
-    const header = { type: 'custom:glass-home-header', grid_options: full, ...(c.name ? { name: c.name } : {}) };
+    const header = { type: 'custom:glass-home-header', grid_options: full, ...(c.name ? { name: c.name } : {}), ...(c.names ? { names: c.names } : {}) };
     const status = { type: 'custom:glass-home-status', grid_options: full };
     const roomCards = rooms.map((a) => ({ type: 'custom:glass-home-room', area: a.area_id, grid_options: { columns: 12 } }));
     const energy = { type: 'custom:glass-home-energy', grid_options: { columns: mods.waste ? 24 : 'full' } };

@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.7.1: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.7.2: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -25,7 +25,9 @@ Einstellungen → Dashboards → Dashboard hinzufügen → „Neues Dashboard vo
 ```yaml
 strategy:
   type: custom:glass-home
-  name: Familie Huber        # optional, Name in der Begrüßung
+  name: Familie Huber        # optional, Name in der Begrüßung für alle
+  names:                     # optional, Begrüßung je Benutzer (sonst Vorname des Benutzers)
+    viewer: Familie Huber
   title: Zuhause             # optional
   hide_areas: [garage]       # optional, Bereichs-IDs ausblenden
   modules:                   # optional, Module abschalten
