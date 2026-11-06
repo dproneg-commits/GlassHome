@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.8.5';
+const GH_VERSION = '0.8.6';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1252,7 +1252,7 @@ class GlassHomeStatusCard extends HTMLElement {
 
   setConfig(config) {
     this._config = { ...(config || {}) };
-    this._sig = '';
+    this._sig = null;
     if (this._hass) this._render();
   }
 
@@ -1492,7 +1492,8 @@ class GlassHomePopup extends HTMLElement {
     this.list = ids;
     const ok = this.onedit?.(ids);
     this._saveMsg = ok === false ? 'Speichern geht nur im Glass-Raster.' : '';
-    this._sig = '';
+    // null statt '': eine leere Auswahl hat ebenfalls die Signatur ''
+    this._sig = null;
     this.hass = this._hass;
   }
 
@@ -1513,7 +1514,7 @@ class GlassHomePopup extends HTMLElement {
 
   _render(groups) {
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-    const h = this._hass, k = this.kind, s = k === 'room' ? null : summarize(h, k);
+    const h = this._hass, k = this.kind, s = k === 'room' ? null : summarize(h, k, this.list);
     this._all = groups.flatMap((x) => x.ids);
 
     // Rahmen nur einmal aufbauen, sonst startet die Einblend-Animation bei jedem Update neu
