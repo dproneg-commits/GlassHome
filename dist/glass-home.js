@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.4';
+const GH_VERSION = '0.9.5';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -8,7 +8,7 @@ const GH_VERSION = '0.9.4';
 // Farbige Icons (Standard). Abschalten: Ansicht mit icon_colors: false (setzt gh-flat an jeder Karte)
 function COLOR_STYLE() { return `
   :host(glass-home-temperature){--gh-hc:#ff8a65}:host(glass-home-agenda){--gh-hc:#aed581}:host(glass-home-rooms){--gh-hc:#b48cff}
-  :host(glass-home-energy){--gh-hc:#ffd54f}:host(glass-home-waste){--gh-hc:#d7a77b}:host(glass-home-calendar){--gh-hc:#4dd0e1}
+  :host(glass-home-energy){--gh-hc:#ffd54f}:host(glass-home-energy-flow){--gh-hc:#ffd54f}:host(glass-home-battery){--gh-hc:#b48cff}:host(glass-home-waste){--gh-hc:#d7a77b}:host(glass-home-calendar){--gh-hc:#4dd0e1}
   :host(glass-home-scenes){--gh-hc:#ffb74d}
   :host(glass-home-agenda) .cal .hd{--hc:#4dd0e1}
   :host(:not([gh-flat])) .hd>svg,:host(:not([gh-flat])) .hd .ti svg{color:var(--hc,var(--gh-hc,var(--gh-mute)));padding:4px;margin:-4px 0;box-sizing:content-box;border-radius:9px;
@@ -1851,32 +1851,42 @@ const ENERGY_STYLE = `
   .tile small{font-size:12px;color:var(--gh-mute);display:block;line-height:1.3}
   .tile>div{min-width:0}
   .chart{margin-top:10px;padding:14px 16px;display:flex;flex-direction:column}
-  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:8px}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:8px;flex-wrap:wrap}
   .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
+  .seg{display:flex;gap:2px;background:rgba(255,255,255,.06);border:1px solid var(--gh-line);border-radius:12px;padding:3px;margin-left:10px}
+  .seg button{all:unset;cursor:pointer;font-size:13px;font-weight:500;color:var(--gh-mute);padding:5px 12px;border-radius:9px;font-family:inherit}
+  .seg button.on{background:rgba(255,255,255,.12);color:var(--gh-txt)}
   .sum{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
   .sum span{background:rgba(255,255,255,.06);border-radius:999px;padding:4px 11px;font-size:12.5px;color:var(--gh-mute)}
   .sum b{color:var(--gh-txt);font-weight:600}
   .plot{position:relative;height:var(--gh-chart-h,220px)}
   svg.cv{position:absolute;inset:0;width:100%;height:100%}
-  .yl,.xl,.now{position:absolute;font-size:11.5px;color:var(--gh-mute);white-space:nowrap}
+  .yl,.yr,.xl,.now{position:absolute;font-size:11.5px;color:var(--gh-mute);white-space:nowrap}
   .yl{left:4px;transform:translateY(-120%)}
+  .yr{right:4px;transform:translateY(-120%);color:#b48cff}
   /* Zeitmarke mittig unter ihrer Stunde, 00:00 bündig links */
   .xl{bottom:0;transform:translateX(-50%)}
   .xl.x0{transform:none}
   .now{top:0}
-  .lg{display:flex;gap:14px;font-size:12px;color:var(--gh-mute);margin-top:4px}
+  .lg{display:flex;gap:14px;font-size:12px;color:var(--gh-mute);margin-top:4px;flex-wrap:wrap}
   .lg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+  .lg i.d{border-radius:2px;height:3px;width:14px;vertical-align:middle}
   .msg{padding:14px 16px;font-size:13px;color:var(--gh-mute);line-height:1.45}
   /* im Glass-Raster füllt das Diagramm die restliche Höhe der Fläche */
   .en{display:flex;flex-direction:column;height:100%;min-height:0}
   .en .chart{flex:1;min-height:0}
-  .en .plot{flex:1;min-height:140px;height:auto}
+  .en.only .chart{margin-top:0}
+  .en .plot{flex:1;min-height:120px;height:auto}
+  /* nur Kacheln: 2 × 2 und volle Höhe */
+  .en.tl .tiles{flex:1;grid-auto-rows:1fr}
+  .en.tl .tile{min-height:0}
   @container (max-width:620px){
     .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
     /* eine übrige Kachel nutzt die ganze Reihe */
     .tile:last-child:nth-child(odd){grid-column:1/-1}
     .tile{padding:10px 12px}.tile b{font-size:16px}
     .plot{height:170px}
+    .seg{margin-left:0;order:3;width:100%}.seg button{flex:1;text-align:center;padding:5px 4px}
   }
   @container (max-width:460px){
     .tile{min-height:56px;padding:8px 10px;gap:8px}.tile .ic{width:32px;height:32px}.tile b{font-size:15px}
@@ -1896,12 +1906,61 @@ function powerKw(h, id) {
   return u === 'kw' ? v : u === 'mw' ? v * 1000 : v / 1000;
 }
 
+// Energiequellen aus dem Energie-Dashboard (einmal je Seite geladen)
+let ghEnergyPrefs = null;
+const energyPrefs = (h) => (ghEnergyPrefs ||= h.callWS({ type: 'energy/get_prefs' }).catch((e) => { ghEnergyPrefs = null; throw e; }));
+function energyIds(prefs) {
+  const src = prefs?.energy_sources || [];
+  const grid = src.filter((s) => s.type === 'grid'), bat = src.filter((s) => s.type === 'battery');
+  const u = (a) => [...new Set(a.filter(Boolean))];
+  return {
+    solar: u(src.filter((s) => s.type === 'solar').map((s) => s.stat_energy_from)),
+    from: u(grid.flatMap((g) => [...(g.flow_from || []).map((f) => f.stat_energy_from), g.stat_energy_from])),
+    to: u(grid.flatMap((g) => [...(g.flow_to || []).map((f) => f.stat_energy_to), g.stat_energy_to])),
+    batIn: u(bat.map((b) => b.stat_energy_to)),     // in den Akku geladen
+    batOut: u(bat.map((b) => b.stat_energy_from)),  // aus dem Akku entladen
+    power: { solar: src.find((s) => s.type === 'solar' && s.stat_rate)?.stat_rate, grid: grid.find((g) => g.stat_rate)?.stat_rate },
+  };
+}
+
+// Zeiträume: Heute/Gestern stündlich, Woche/Monat täglich, Jahr monatlich
+const EN_PERIODS = [['day', 'Heute'], ['yesterday', 'Gestern'], ['week', 'Woche'], ['month', 'Monat'], ['year', 'Jahr']];
+const EN_MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const EN_MON_L = ['Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const EN_WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+function energyRange(p) {
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const day = (n) => { const x = new Date(d0); x.setDate(x.getDate() + n); return x; };
+  if (p === 'yesterday') return { start: day(-1), end: d0, period: 'hour', n: 24, idx: (t) => t.getHours() };
+  if (p === 'week') { const s = day(-6); return { start: s, period: 'day', n: 7, idx: (t) => Math.round((new Date(t).setHours(0, 0, 0, 0) - s) / 864e5), lab: (i) => { const x = new Date(s); x.setDate(x.getDate() + i); return `${EN_WD[x.getDay()]} ${x.getDate()}.`; } }; }
+  if (p === 'month') { const s = new Date(d0.getFullYear(), d0.getMonth(), 1), n = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate(); return { start: s, period: 'day', n, idx: (t) => t.getDate() - 1, lab: (i) => `${i + 1}.`, step: n > 20 ? 3 : 1 }; }
+  if (p === 'year') return { start: new Date(d0.getFullYear(), 0, 1), period: 'month', n: 12, idx: (t) => t.getMonth(), lab: (i) => EN_MON[i] };
+  return { start: d0, period: 'hour', n: 24, idx: (t) => t.getHours() };
+}
+const energyWhen = (p) => {
+  const d = new Date();
+  return { day: 'heute', yesterday: 'gestern', week: 'in 7 Tagen', month: `im ${EN_MON_L[d.getMonth()]}`, year: String(d.getFullYear()) }[p] || 'heute';
+};
+const energyTitle = (p) => {
+  const d = new Date(), y = new Date(Date.now() - 864e5);
+  return { day: 'Heute', yesterday: `Gestern · ${EN_WD[y.getDay()]}., ${y.getDate()}. ${EN_MON_L[y.getMonth()]}`, week: 'Letzte 7 Tage', month: `${EN_MON_L[d.getMonth()]} ${d.getFullYear()}`, year: `Jahr ${d.getFullYear()}` }[p];
+};
+// gewählter Zeitraum gilt für alle Energiekarten der Seite (Kacheln und Diagramm getrennt platziert)
+let ghEnergyPeriod = 'day';
+
 class GlassHomeEnergyCard extends HTMLElement {
   static getConfigElement() { return document.createElement('glass-home-energy-editor'); }
   static getStubConfig() { return { chart: true }; }
 
+  constructor() {
+    super();
+    this._data = {};
+    this._onPeriod = () => { if (this._period !== ghEnergyPeriod) { this._period = ghEnergyPeriod; this._load(); this._render(); } };
+  }
+
   setConfig(config) {
-    this._config = { chart: true, ...(config || {}) };
+    this._config = { chart: true, periods: true, part: 'both', ...(config || {}) };
+    this._period = this._config.periods ? ghEnergyPeriod : 'day';
     this._sig = '';
     if (this._hass) this._render();
   }
@@ -1919,157 +1978,448 @@ class GlassHomeEnergyCard extends HTMLElement {
   }
 
   connectedCallback() {
-    // Tageswerte alle 5 Minuten neu holen
-    this._tick = setInterval(() => this._load(), 5 * 60e3);
-    if (this._hass && !this._stats) this._load();
+    // Werte alle 5 Minuten neu holen
+    this._tick = setInterval(() => this._load(true), 5 * 60e3);
+    window.addEventListener('glass-home-energy-period', this._onPeriod);
+    this._onPeriod();
+    if (this._hass && !this._data[this._period]) this._load();
   }
 
-  disconnectedCallback() { clearInterval(this._tick); }
+  disconnectedCallback() { clearInterval(this._tick); window.removeEventListener('glass-home-energy-period', this._onPeriod); }
 
   getCardSize() { return 6; }
   getGridOptions() { return { columns: 'full' }; }
 
-  async _load() {
-    const h = this._hass;
-    if (!h?.callWS || this._loading) return;
-    this._loading = true;
+  async _load(force) {
+    const h = this._hass, p = this._period;
+    if (!h?.callWS || this._loading === p) return;
+    const old = this._data[p];
+    // abgeschlossene Zeiträume nur einmal laden, laufende alle 5 Minuten
+    if (old && !old.error && !(force && p !== 'yesterday')) return;
+    this._loading = p;
     try {
-      if (!this._prefs) this._prefs = await h.callWS({ type: 'energy/get_prefs' });
-      const src = this._prefs?.energy_sources || [];
-      const solar = src.filter((s) => s.type === 'solar').map((s) => s.stat_energy_from).filter(Boolean);
-      const grid = src.filter((s) => s.type === 'grid');
-      const from = grid.flatMap((g) => [...(g.flow_from || []).map((f) => f.stat_energy_from), g.stat_energy_from]).filter(Boolean);
-      const to = grid.flatMap((g) => [...(g.flow_to || []).map((f) => f.stat_energy_to), g.stat_energy_to]).filter(Boolean);
-      this._ids = { solar, from, to };
-      // Leistungssensoren aus dem Energie-Dashboard übernehmen, falls dort hinterlegt
-      this._autoPower = {
-        solar: src.find((s) => s.type === 'solar' && s.stat_rate)?.stat_rate,
-        grid: grid.find((g) => g.stat_rate)?.stat_rate,
-      };
-      // dieselbe Statistik kann in mehreren Feldern stehen, sie zählt nur einmal
-      for (const k of ['solar', 'from', 'to']) this._ids[k] = [...new Set(this._ids[k])];
-      const all = [...this._ids.solar, ...this._ids.from, ...this._ids.to];
-      if (!all.length) { this._stats = { empty: true }; return; }
-      const start = new Date(); start.setHours(0, 0, 0, 0);
-      const res = await h.callWS({
-        type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: 'hour',
-        statistic_ids: all, types: ['change'], units: { energy: 'kWh' },
-      });
-      // Stundenwerte je Gruppe aufsummieren (24 Fächer)
-      const hours = (ids) => {
-        const out = new Array(24).fill(null);
-        for (const id of ids) for (const row of res[id] || []) {
-          const hr = new Date(typeof row.start === 'number' ? row.start : Date.parse(row.start)).getHours();
-          out[hr] = (out[hr] || 0) + (row.change || 0);
+      const ids = this._ids || (this._ids = energyIds(await energyPrefs(h)));
+      const all = [...ids.solar, ...ids.from, ...ids.to, ...ids.batIn, ...ids.batOut];
+      if (!all.length) { this._data[p] = { empty: true }; return; }
+      const r = energyRange(p), soc = this._config.battery_soc;
+      const msg = { type: 'recorder/statistics_during_period', start_time: r.start.toISOString(), period: r.period, statistic_ids: all, types: ['change'], units: { energy: 'kWh' } };
+      if (r.end) msg.end_time = r.end.toISOString();
+      const [res, socRes] = await Promise.all([
+        h.callWS(msg),
+        soc && r.period === 'hour' ? h.callWS({ ...msg, statistic_ids: [soc], types: ['mean'], units: {} }).catch(() => ({})) : Promise.resolve({}),
+      ]);
+      // Werte je Gruppe in Fächer aufsummieren (Stunden, Tage oder Monate)
+      const bins = (list, key = 'change') => {
+        const out = new Array(r.n).fill(null);
+        for (const id of list) for (const row of res[id] || socRes[id] || []) {
+          const i = r.idx(new Date(typeof row.start === 'number' ? row.start : Date.parse(row.start)));
+          if (i >= 0 && i < r.n && row[key] != null) out[i] = key === 'mean' ? row[key] : (out[i] || 0) + row[key];
         }
         return out;
       };
-      this._stats = { solar: hours(this._ids.solar), from: hours(this._ids.from), to: hours(this._ids.to) };
+      const d = { r, solar: bins(ids.solar), from: bins(ids.from), to: bins(ids.to), batIn: bins(ids.batIn), batOut: bins(ids.batOut) };
+      d.soc = soc ? bins([soc], 'mean') : null;
+      d.use = d.from.map((v, i) => ([v, d.solar[i], d.batOut[i]].every((x) => x == null) ? null
+        : Math.max(0, (v || 0) + (d.solar[i] || 0) + (d.batOut[i] || 0) - (d.to[i] || 0) - (d.batIn[i] || 0))));
+      this._data[p] = d;
     } catch (e) {
-      this._stats = { error: e.message || String(e) };
+      this._data[p] = { error: e.message || String(e) };
     } finally {
-      this._loading = false;
-      this._render();
+      if (this._loading === p) this._loading = null;
+      if (p === this._period) this._render();
     }
   }
 
+  _setPeriod(p) {
+    ghEnergyPeriod = p;
+    window.dispatchEvent(new CustomEvent('glass-home-energy-period'));
+  }
+
   _render() {
-    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-    const h = this._hass, c = this._config, st = this._stats;
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.addEventListener('click', (ev) => { const b = ev.target.closest('.seg button'); if (b) this._setPeriod(b.dataset.p); });
+    }
+    const h = this._hass, c = this._config, p = this._period, st = this._data[p];
     const style = `<style>${GH_STYLE}${ENERGY_STYLE}</style>`;
     if (!st) { this.shadowRoot.innerHTML = `${style}<div class="p msg">Energiedaten werden geladen …</div>`; return; }
     if (st.error) { this.shadowRoot.innerHTML = `${style}<div class="p msg">Energiedaten nicht verfügbar: ${esc(st.error)}</div>`; return; }
     if (st.empty) {
-      this.shadowRoot.innerHTML = `${style}<div class="p msg">Im Energie-Dashboard ist noch keine Quelle eingetragen.<br>Einstellungen → Dashboards → Energie: Netz und Solar hinzufügen.</div>`;
+      this.shadowRoot.innerHTML = `${style}<div class="p msg">Im Energie-Dashboard ist noch keine Quelle eingetragen.<br>Einstellungen → Dashboards → Energie: Netz, Solar und Batterie hinzufügen.</div>`;
       return;
     }
 
     const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
     const hasSolar = this._ids.solar.length > 0;
-    const pv = sum(st.solar), from = sum(st.from), to = sum(st.to);
-    const use = Math.max(0, from + pv - to);
+    const pv = sum(st.solar), from = sum(st.from), to = sum(st.to), use = sum(st.use);
     const autark = use > 0 ? Math.round(Math.max(0, Math.min(1, 1 - from / use)) * 100) : null;
+    const when = energyWhen(p);
 
-    // aktuelle Leistung, wenn Sensoren bekannt sind
-    const pSolar = powerKw(h, c.solar_power || this._autoPower?.solar);
-    const pGrid = powerKw(h, c.grid_power || this._autoPower?.grid);   // + Bezug, − Einspeisung
-    let pHome = powerKw(h, c.home_power);
+    // aktuelle Leistung (nur Heute), wenn Sensoren bekannt sind
+    const live = p === 'day';
+    const pSolar = live ? powerKw(h, c.solar_power || this._ids.power?.solar) : null;
+    const pGrid = live ? powerKw(h, c.grid_power || this._ids.power?.grid) : null;   // + Bezug, − Einspeisung
+    let pHome = live ? powerKw(h, c.home_power) : null;
     if (pHome == null && pSolar != null && pGrid != null) pHome = Math.max(0, pSolar + pGrid);
     const kw = (v) => `${fmt(Math.abs(v))} kW`;
 
     const tiles = [];
-    if (hasSolar) tiles.push({ c: '245,200,76', i: 'sun', v: pSolar != null ? kw(pSolar) : kWh(pv), l: pSolar != null ? `Erzeugung · heute ${kWh(pv)}` : 'Erzeugt heute' });
-    tiles.push({ c: '77,208,225', i: 'home', v: pHome != null ? kw(pHome) : kWh(use), l: pHome != null ? `Hausverbrauch · heute ${kWh(use)}` : 'Verbraucht heute' });
+    if (hasSolar) tiles.push({ c: '245,200,76', i: 'sun', v: pSolar != null ? kw(pSolar) : kWh(pv), l: pSolar != null ? `Erzeugung · heute ${kWh(pv)}` : `PV erzeugt ${when}` });
+    tiles.push({ c: '77,208,225', i: 'home', v: pHome != null ? kw(pHome) : kWh(use), l: pHome != null ? `Hausverbrauch · heute ${kWh(use)}` : `Haus verbraucht ${when}` });
     if (pGrid != null) tiles.push(pGrid < 0
       ? { c: '95,214,142', i: 'plug', v: kw(pGrid), l: 'Einspeisung jetzt' }
       : { c: '255,138,101', i: 'plug', v: kw(pGrid), l: 'Netzbezug jetzt' });
-    else {
-      if (hasSolar || to > 0) tiles.push({ c: '95,214,142', i: 'plug', v: kWh(to), l: 'Eingespeist heute' });
-      if (!hasSolar) tiles.push({ c: '255,138,101', i: 'plug', v: kWh(from), l: 'Netzbezug heute' });
-    }
-    if (hasSolar && autark != null) tiles.push({ c: '201,210,220', i: 'leaf', v: `${autark} %`, l: 'Autarkie heute' });
+    else if (hasSolar || to > 0) tiles.push({ c: '95,214,142', i: 'plug', v: `${fmt(to, to >= 100 ? 0 : 1)} / ${kWh(from)}`, l: 'eingespeist / bezogen' });
+    else tiles.push({ c: '255,138,101', i: 'plug', v: kWh(from), l: `Netzbezug ${when}` });
+    if (hasSolar && autark != null) tiles.push({ c: '201,210,220', i: 'leaf', v: `${autark} %`, l: `Autarkie ${when}` });
 
-    let chart = '';
-    if (c.chart) {
-      const prod = st.solar, cons = st.solar.map((s, i) => (st.from[i] == null && s == null ? null : Math.max(0, (st.from[i] || 0) + (s || 0) - (st.to[i] || 0))));
-      const now = new Date().getHours() + new Date().getMinutes() / 60;
-      const max = Math.max(0.5, ...prod.filter((v) => v != null), ...cons.filter((v) => v != null));
-      const W = 800, H = 230, top = 22, bot = 200;
-      const x = (i) => ((i + 0.5) / 24) * W;
-      const y = (v) => bot - (v / max) * (bot - top);
-      const path = (arr) => {
-        const pts = arr.map((v, i) => (v == null ? null : [x(i), y(v)])).filter(Boolean);
-        if (pts.length < 2) return '';
-        // weiche Kurve durch die Stundenwerte
-        let d = `M${pts[0][0]} ${pts[0][1]}`;
-        for (let i = 1; i < pts.length; i++) {
-          const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], mx = (x0 + x1) / 2;
-          d += ` C${mx} ${y0} ${mx} ${y1} ${x1} ${y1}`;
-        }
-        return { d, first: pts[0], last: pts[pts.length - 1] };
-      };
-      const pp = hasSolar ? path(prod) : '', pc = path(cons);
-      const xn = (now / 24) * W;
-      const grid = [0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="rgba(255,255,255,.08)"/>`).join('');
-      const pctY = (v) => (y(v) / H) * 100;
-      const labels = [0.5, 1].map((f) => `<span class="yl" style="top:${pctY(max * f)}%">${fmt(max * f)} kWh</span>`).join('')
-        + [0, 6, 12, 18].map((hr) => `<span class="xl${hr ? '' : ' x0'}" style="left:${(hr / 24) * 100}%">${String(hr).padStart(2, '0')}:00</span>`).join('')
-        + `<span class="now" style="left:calc(${Math.min((now / 24) * 100, 92)}% + 6px)">jetzt</span>`;
-      chart = `<section class="chart p">
-        <div class="hd">${icon(hasSolar ? 'sun' : 'bolt', 18)}${hasSolar ? 'Photovoltaik heute' : 'Energie heute'}<small>pro Stunde</small></div>
-        <div class="sum">${hasSolar ? `<span>Erzeugt <b>${kWh(pv)}</b></span>` : ''}<span>Verbraucht <b>${kWh(use)}</b></span>
-          ${hasSolar || to > 0 ? `<span>Eingespeist <b>${kWh(to)}</b></span>` : ''}<span>Bezogen <b>${kWh(from)}</b></span></div>
-        <div class="plot"><svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-          <defs><linearGradient id="gy" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5c84c" stop-opacity=".42"/><stop offset="1" stop-color="#f5c84c" stop-opacity="0"/></linearGradient></defs>
-          ${grid}<line x1="0" x2="${W}" y1="${bot}" y2="${bot}" stroke="rgba(255,255,255,.12)"/>
-          ${pp ? `<path d="${pp.d} L${pp.last[0]} ${bot} L${pp.first[0]} ${bot} Z" fill="url(#gy)"/><path d="${pp.d}" fill="none" stroke="#f5c84c" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ''}
-          ${pc ? `<path d="${pc.d}" fill="none" stroke="#4dd0e1" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ''}
-          <line x1="${xn}" x2="${xn}" y1="${top - 8}" y2="${bot}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>
-        </svg>${labels}</div>
-        <div class="lg">${hasSolar ? '<span><i style="background:#f5c84c"></i>Erzeugung</span>' : ''}<span><i style="background:#4dd0e1"></i>Verbrauch</span></div>
-      </section>`;
-    }
+    const part = c.part || 'both';
+    const showTiles = part !== 'chart', showChart = part !== 'tiles' && c.chart !== false;
+    const seg = c.periods ? `<span class="seg">${EN_PERIODS.map(([k, n]) => `<button data-p="${k}" class="${k === p ? 'on' : ''}">${n}</button>`).join('')}</span>` : '';
+    const chart = showChart ? (st.r.period === 'hour' ? this._curve(st, hasSolar, p) : this._bars(st, hasSolar, to > 0)) : '';
+    const title = c.periods ? energyTitle(p) : (hasSolar ? 'Photovoltaik heute' : 'Energie heute');
+    const tilesHtml = showTiles ? `<div class="tiles">${tiles.map((t) => `<div class="tile p" style="--c:${t.c}"><span class="ic">${icon(t.i, 20)}</span><div><b>${esc(t.v)}</b><small>${esc(t.l)}</small></div></div>`).join('')}</div>` : '';
+    const chartHtml = showChart ? `<section class="chart p">
+        <div class="hd">${icon(hasSolar ? 'sun' : 'bolt', 18)}${esc(title)}${seg}<small>${chart.unit}</small></div>
+        ${c.periods ? '' : `<div class="sum">${hasSolar ? `<span>Erzeugt <b>${kWh(pv)}</b></span>` : ''}<span>Verbraucht <b>${kWh(use)}</b></span>
+          ${hasSolar || to > 0 ? `<span>Eingespeist <b>${kWh(to)}</b></span>` : ''}<span>Bezogen <b>${kWh(from)}</b></span></div>`}
+        ${chart.html}
+      </section>` : '';
+    this.shadowRoot.innerHTML = `${style}<div class="en${part === 'tiles' ? ' tl' : ''}${part === 'chart' ? ' only' : ''}">${tilesHtml}${chartHtml}</div>`;
+  }
 
-    this.shadowRoot.innerHTML = `${style}<div class="en">
-      <div class="tiles">${tiles.map((t) => `<div class="tile p" style="--c:${t.c}"><span class="ic">${icon(t.i, 20)}</span><div><b>${esc(t.v)}</b><small>${esc(t.l)}</small></div></div>`).join('')}</div>
-      ${chart}</div>`;
+  // Stundenkurve (Heute, Gestern): PV-Fläche, Verbrauch, Netzbezug als Balken, Akku-Ladestand gestrichelt
+  _curve(st, hasSolar, p) {
+    const isToday = p === 'day';
+    const prod = st.solar, cons = st.use, buy = st.from, soc = st.soc && st.soc.some((v) => v != null) ? st.soc : null;
+    const now = isToday ? new Date().getHours() + new Date().getMinutes() / 60 : 24;
+    const max = Math.max(0.5, ...prod.filter((v) => v != null), ...cons.filter((v) => v != null));
+    const W = 800, H = 230, top = 22, bot = 200;
+    const x = (i) => ((i + 0.5) / 24) * W;
+    const y = (v) => bot - (v / max) * (bot - top);
+    const y2 = (v) => bot - (v / 100) * (bot - top);
+    const path = (arr, fy) => {
+      const pts = arr.map((v, i) => (v == null ? null : [x(i), fy(v)])).filter(Boolean);
+      if (pts.length < 2) return '';
+      // weiche Kurve durch die Stundenwerte
+      let d = `M${pts[0][0]} ${pts[0][1]}`;
+      for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], mx = (x0 + x1) / 2;
+        d += ` C${mx} ${y0} ${mx} ${y1} ${x1} ${y1}`;
+      }
+      return { d, first: pts[0], last: pts[pts.length - 1] };
+    };
+    const pp = hasSolar ? path(prod, y) : '', pc = path(cons, y), ps = soc ? path(soc, y2) : '';
+    const bw = W / 24 * 0.42;
+    const bars = buy.map((v, i) => (v > 0.005 ? `<rect x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${bot - y(v)}" rx="3" fill="rgba(255,138,101,.7)"/>` : '')).join('');
+    const xn = (now / 24) * W;
+    const grid = [0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="rgba(255,255,255,.08)"/>`).join('');
+    const pctY = (v) => (v / H) * 100;
+    const labels = [0.5, 1].map((f) => `<span class="yl" style="top:${pctY(y(max * f))}%">${fmt(max * f)} kWh</span>`).join('')
+      + (ps ? [50, 100].map((v) => `<span class="yr" style="top:${pctY(y2(v))}%">${v} %</span>`).join('') : '')
+      + [0, 6, 12, 18].map((hr) => `<span class="xl${hr ? '' : ' x0'}" style="left:${(hr / 24) * 100}%">${String(hr).padStart(2, '0')}:00</span>`).join('')
+      + (isToday ? `<span class="now" style="left:calc(${Math.min((now / 24) * 100, 92)}% + 6px)">jetzt</span>` : '');
+    const html = `<div class="plot"><svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <defs><linearGradient id="gy" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5c84c" stop-opacity=".42"/><stop offset="1" stop-color="#f5c84c" stop-opacity="0"/></linearGradient></defs>
+        ${grid}<line x1="0" x2="${W}" y1="${bot}" y2="${bot}" stroke="rgba(255,255,255,.12)"/>${bars}
+        ${pp ? `<path d="${pp.d} L${pp.last[0]} ${bot} L${pp.first[0]} ${bot} Z" fill="url(#gy)"/><path d="${pp.d}" fill="none" stroke="#f5c84c" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ''}
+        ${pc ? `<path d="${pc.d}" fill="none" stroke="#4dd0e1" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ''}
+        ${ps ? `<path d="${ps.d}" fill="none" stroke="#b48cff" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>` : ''}
+        ${isToday ? `<line x1="${xn}" x2="${xn}" y1="${top - 8}" y2="${bot}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>` : ''}
+      </svg>${labels}</div>
+      <div class="lg">${hasSolar ? '<span><i style="background:#f5c84c"></i>PV-Erzeugung</span>' : ''}<span><i style="background:#4dd0e1"></i>Hausverbrauch</span><span><i style="background:#ff8a65"></i>Netzbezug</span>${ps ? '<span><i class="d" style="background:#b48cff"></i>Akku-Ladestand</span>' : ''}</div>`;
+    return { html, unit: 'pro Stunde' };
+  }
+
+  // Balken je Tag oder Monat (Woche, Monat, Jahr): Erzeugung, Verbrauch, Einspeisung, Bezug
+  _bars(st, hasSolar, hasFeed) {
+    const r = st.r;
+    const keys = [hasSolar && ['solar', '245,200,76', 'PV-Erzeugung'], ['use', '77,208,225', 'Hausverbrauch'], (hasSolar || hasFeed) && ['to', '95,214,142', 'Einspeisung'], ['from', '255,138,101', 'Netzbezug']].filter(Boolean);
+    const max = Math.max(0.5, ...keys.flatMap(([k]) => st[k].filter((v) => v != null))) * 1.08;
+    const W = 800, H = 230, top = 16, bot = 200, L = 64, slot = (W - L) / r.n, bw = Math.min(14, slot * 0.8 / keys.length);
+    const y = (v) => bot - (v / max) * (bot - top);
+    const rects = Array.from({ length: r.n }, (_, i) => {
+      const cx = L + slot * (i + 0.5), x0 = cx - (bw * keys.length) / 2;
+      if (keys.every(([k]) => st[k][i] == null)) return `<rect x="${cx - slot * 0.3}" y="${bot - 2}" width="${slot * 0.6}" height="2" fill="rgba(255,255,255,.08)"/>`;
+      return keys.map(([k, col], j) => { const v = st[k][i] || 0; return v > 0 ? `<rect x="${x0 + j * bw}" y="${y(v)}" width="${bw - 1.2}" height="${bot - y(v)}" rx="2" fill="rgba(${col},.85)"/>` : ''; }).join('');
+    }).join('');
+    const pctY = (v) => (v / H) * 100;
+    const labels = [0.5, 1].map((f) => `<span class="yl" style="top:${pctY(y(max / 1.08 * f))}%">${fmt(max / 1.08 * f, max >= 100 ? 0 : 1)} kWh</span>`).join('')
+      + Array.from({ length: r.n }, (_, i) => (i % (r.step || 1) ? '' : `<span class="xl" style="left:${((L + slot * (i + 0.5)) / W) * 100}%">${esc(r.lab(i))}</span>`)).join('');
+    const grid = [0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${y(max / 1.08 * f)}" y2="${y(max / 1.08 * f)}" stroke="rgba(255,255,255,.08)"/>`).join('');
+    const html = `<div class="plot"><svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}
+        <line x1="0" x2="${W}" y1="${bot}" y2="${bot}" stroke="rgba(255,255,255,.12)"/>${rects}</svg>${labels}</div>
+      <div class="lg">${keys.map(([, col, n]) => `<span><i style="background:rgb(${col})"></i>${n}</span>`).join('')}</div>`;
+    return { html, unit: r.period === 'month' ? 'pro Monat' : 'pro Tag' };
   }
 }
 
 class GlassHomeEnergyEditor extends GlassHomeFormEditor {
   static schema = [
+    { name: 'part', selector: { select: { mode: 'dropdown', options: [{ value: 'both', label: 'Kacheln und Diagramm' }, { value: 'tiles', label: 'Nur Kacheln' }, { value: 'chart', label: 'Nur Diagramm' }] } } },
+    { name: 'periods', selector: { boolean: {} } },
     { name: 'chart', selector: { boolean: {} } },
+    { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
     { name: 'solar_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
     { name: 'grid_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
     { name: 'home_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
   ];
   static labels = {
-    chart: 'Tageskurve zeigen',
-    solar_power: 'PV-Leistung jetzt (optional)',
+    part: 'Inhalt',
+    periods: 'Zeitraum wählbar (Heute, Gestern, Woche, Monat, Jahr)',
+    chart: 'Diagramm zeigen',
+    battery_soc: 'Akku-Ladestand für die Kurve (optional)',
+    solar_power: 'PV-Leistung jetzt in den Kacheln (optional)',
     grid_power: 'Netz-Leistung jetzt, + Bezug / − Einspeisung (optional)',
     home_power: 'Hausverbrauch jetzt (optional, sonst berechnet)',
   };
-  static defaults = { chart: true };
+  static defaults = { chart: true, periods: true, part: 'both' };
+}
+
+/* ------------------------------------------------------------------ */
+/* Energiefluss jetzt: PV, Netz, Haus, Akku                            */
+/* ------------------------------------------------------------------ */
+const FLOW_STYLE = `
+  .fl{height:100%;padding:14px 16px;display:flex;flex-direction:column;min-height:0}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+  .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
+  .fl svg.f{flex:1;min-height:0;width:100%}
+  .lbl{font-size:12.5px;fill:var(--gh-mute)}.val{font-size:15px;font-weight:600;fill:var(--gh-txt)}
+  .msg{padding:14px 16px;font-size:13px;color:var(--gh-mute);line-height:1.45}
+`;
+const FLOW_C = { solar: '245,200,76', home: '77,208,225', feed: '95,214,142', buy: '255,138,101', bat: '180,140,255' };
+const FLOW_ICON = {
+  solar: ICONS.sun, home: ICONS.home,
+  grid: '<path d="M8 22 12 2l4 20M6 8h12M5 14h14M9.5 14 12 8l2.5 6"/>',
+  bat: '<rect x="3" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M11 9l-2 3h4l-2 3"/>',
+};
+
+// Leistungen jetzt (kW): Akku + lädt / − entlädt, Netz + Bezug / − Einspeisung; fehlende Werte werden berechnet
+function energyNow(h, c, auto = {}) {
+  const pv = powerKw(h, c.solar_power || auto.solar);
+  let grid = powerKw(h, c.grid_power || auto.grid), home = powerKw(h, c.home_power), bat = powerKw(h, c.battery_power);
+  if (bat != null && c.invert_battery) bat = -bat;
+  if (grid != null && c.invert_grid) grid = -grid;
+  if (home == null && grid != null) home = Math.max(0, (pv || 0) + grid - (bat || 0));
+  if (grid == null && home != null) grid = home - (pv || 0) + (bat || 0);
+  const s = h.states[c.battery_soc], soc = s && !isNaN(parseFloat(s.state)) ? parseFloat(s.state) : null;
+  return { pv, grid, home, bat, soc };
+}
+
+class GlassHomeEnergyFlowCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-energy-flow-editor'); }
+  static getStubConfig() { return {}; }
+  setConfig(config) { this._config = { ...(config || {}) }; this._sig = ''; if (this._hass) this._render(); }
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (!this._config) return;
+    if (first && hass.callWS) energyPrefs(hass).then((p) => { this._auto = energyIds(p).power; this._sig = ''; this._render(); }).catch(() => {});
+    this._render();
+  }
+  getCardSize() { return 6; }
+  getGridOptions() { return { columns: 7, rows: 5 }; }
+
+  _render() {
+    const h = this._hass, c = this._config;
+    const n = energyNow(h, c, this._auto || {});
+    const r1 = (v) => (v == null ? '' : Math.round(v * 10) / 10);
+    const sig = [n.pv, n.grid, n.home, n.bat].map(r1).join('|') + '|' + Math.round(n.soc ?? -1);
+    if (sig === this._sig) return;
+    this._sig = sig;
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const style = `<style>${GH_STYLE}${FLOW_STYLE}</style>`;
+    if (n.home == null && n.pv == null) {
+      this.shadowRoot.innerHTML = `${style}<div class="fl p"><div class="hd">${icon('bolt', 18)}Energiefluss<small>jetzt</small></div><div class="msg" style="padding:8px 0">Leistungssensoren im Karten-Editor wählen (PV, Netz, Hausverbrauch, Akku).</div></div>`;
+      return;
+    }
+    const hasPv = n.pv != null, hasBat = n.bat != null || n.soc != null;
+    // Flüsse verteilen: PV zuerst ins Haus, dann in den Akku, Rest ins Netz; Akku und Netz decken den Rest
+    const pv = Math.max(0, n.pv || 0), home = Math.max(0, n.home || 0);
+    const chg = Math.max(0, n.bat || 0), dis = Math.max(0, -(n.bat || 0));
+    const imp = Math.max(0, n.grid || 0), exp = Math.max(0, -(n.grid || 0));
+    let need = home, charge = chg;
+    const f = {};
+    f.pv_home = Math.min(pv, need); need -= f.pv_home;
+    let rest = pv - f.pv_home;
+    f.pv_bat = Math.min(rest, charge); charge -= f.pv_bat; rest -= f.pv_bat;
+    f.pv_grid = Math.min(rest, exp);
+    f.bat_home = Math.min(dis, need); need -= f.bat_home;
+    f.bat_grid = Math.max(0, Math.min(dis - f.bat_home, exp - f.pv_grid));
+    f.grid_home = Math.min(imp, need);
+    f.grid_bat = Math.max(0, Math.min(imp - f.grid_home, charge));
+
+    const N = { solar: [340, 62], grid: [92, 168], home: [588, 168], bat: [340, 274] }, R = 46;
+    const P = {
+      pv_home: `M${N.solar[0] + 30} ${N.solar[1] + 35} C${N.solar[0] + 90} ${N.home[1]} ${N.home[0] - 120} ${N.home[1]} ${N.home[0] - R} ${N.home[1]}`,
+      pv_grid: `M${N.solar[0] - 30} ${N.solar[1] + 35} C${N.solar[0] - 90} ${N.grid[1]} ${N.grid[0] + 120} ${N.grid[1]} ${N.grid[0] + R} ${N.grid[1]}`,
+      pv_bat: `M${N.solar[0]} ${N.solar[1] + R} L${N.bat[0]} ${N.bat[1] - R}`,
+      grid_home: `M${N.grid[0] + R} ${N.grid[1]} L${N.home[0] - R} ${N.home[1]}`,
+      bat_home: `M${N.bat[0] + 30} ${N.bat[1] - 35} C${N.bat[0] + 90} ${N.home[1]} ${N.home[0] - 120} ${N.home[1]} ${N.home[0] - R} ${N.home[1]}`,
+      bat_grid: `M${N.bat[0] - 30} ${N.bat[1] - 35} C${N.bat[0] - 90} ${N.grid[1]} ${N.grid[0] + 120} ${N.grid[1]} ${N.grid[0] + R} ${N.grid[1]}`,
+      grid_bat: `M${N.grid[0] + R} ${N.grid[1]} C${N.grid[0] + 120} ${N.grid[1]} ${N.bat[0] - 90} ${N.grid[1]} ${N.bat[0] - 30} ${N.bat[1] - 35}`,
+    };
+    const col = { pv_home: FLOW_C.solar, pv_bat: FLOW_C.solar, pv_grid: FLOW_C.feed, bat_home: FLOW_C.bat, bat_grid: FLOW_C.feed, grid_home: FLOW_C.buy, grid_bat: FLOW_C.buy };
+    const shown = Object.keys(P).filter((k) => (hasPv || !k.startsWith('pv')) && (hasBat || !k.includes('bat')));
+    let s = '';
+    shown.filter((k) => !(f[k] > 0.02)).forEach((k) => { if (k !== 'grid_bat') s += `<path d="${P[k]}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="2"/>`; });
+    shown.filter((k) => f[k] > 0.02).forEach((k, i) => {
+      s += `<path id="l${i}" d="${P[k]}" fill="none" stroke="rgba(${col[k]},.55)" stroke-width="2.5"/>`;
+      const dur = Math.max(1.2, Math.min(8, 4 / f[k]));
+      for (let j = 0; j < 3; j++) s += `<circle r="4" fill="rgb(${col[k]})"><animateMotion dur="${dur.toFixed(1)}s" begin="${(-j * dur / 3).toFixed(2)}s" repeatCount="indefinite"><mpath href="#l${i}"/></animateMotion></circle>`;
+    });
+    const kw = (v) => `${fmt(Math.abs(v || 0))} kW`;
+    const node = (k, cl, val, lbl, side) => {
+      const [x, y] = N[k];
+      const lx = side === 'r' ? x + R + 14 : x, anchor = side === 'r' ? 'start' : 'middle', ly = side === 'b' ? y + R + 20 : y - 4;
+      return `<circle cx="${x}" cy="${y}" r="${R}" fill="rgba(${cl},.13)" stroke="rgb(${cl})" stroke-width="2"/>
+        <g transform="translate(${x - 13} ${y - 28}) scale(1.08)" fill="none" stroke="rgb(${cl})" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${FLOW_ICON[k]}</g>
+        <text x="${x}" y="${y + 20}" text-anchor="middle" class="val">${esc(val)}</text>
+        <text x="${lx}" y="${ly}" text-anchor="${anchor}" class="lbl">${esc(lbl)}</text>`;
+    };
+    if (hasPv) s += node('solar', FLOW_C.solar, kw(n.pv), 'PV-Erzeugung', 'r');
+    const g = n.grid || 0;
+    s += node('grid', g < -0.02 ? FLOW_C.feed : FLOW_C.buy, kw(g), g < -0.02 ? 'Einspeisung' : 'Netzbezug', 'b');
+    s += node('home', FLOW_C.home, kw(n.home), 'Hausverbrauch', 'b');
+    if (hasBat) {
+      const b = n.bat || 0, st = b > 0.02 ? `lädt · ${kw(b)}` : b < -0.02 ? `entlädt · ${kw(b)}` : 'Akku bereit';
+      s += node('bat', FLOW_C.bat, n.soc != null ? `${Math.round(n.soc)} %` : kw(b), n.soc != null ? `Akku ${st}` : (b < -0.02 ? 'Akku entlädt' : 'Akku lädt'), 'r');
+    }
+    const vb = hasBat ? '0 0 680 330' : '0 0 680 236';
+    this.shadowRoot.innerHTML = `${style}<div class="fl p"><div class="hd">${icon('bolt', 18)}Energiefluss<small>jetzt</small></div>
+      <svg class="f" viewBox="${vb}" preserveAspectRatio="xMidYMid meet">${s}</svg></div>`;
+  }
+}
+
+const FLOW_SCHEMA = [
+  { name: 'solar_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
+  { name: 'grid_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
+  { name: 'home_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
+  { name: 'battery_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
+  { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
+  { name: 'invert_battery', selector: { boolean: {} } },
+  { name: 'invert_grid', selector: { boolean: {} } },
+];
+const FLOW_LABELS = {
+  solar_power: 'PV-Leistung',
+  grid_power: 'Netz-Leistung (+ Bezug / − Einspeisung)',
+  home_power: 'Hausverbrauch (optional, sonst berechnet)',
+  battery_power: 'Akku-Leistung (+ lädt / − entlädt)',
+  battery_soc: 'Akku-Ladestand in %',
+  invert_battery: 'Akku-Vorzeichen umdrehen (Sensor zeigt + beim Entladen)',
+  invert_grid: 'Netz-Vorzeichen umdrehen (Sensor zeigt + bei Einspeisung)',
+  capacity: 'Akku-Größe in kWh (für Restzeit)',
+};
+class GlassHomeEnergyFlowEditor extends GlassHomeFormEditor {
+  static schema = FLOW_SCHEMA;
+  static labels = FLOW_LABELS;
+  static defaults = {};
+}
+
+/* ------------------------------------------------------------------ */
+/* Akku: Ladestand, Leistung, Restzeit, heute geladen/entladen          */
+/* ------------------------------------------------------------------ */
+const BAT_STYLE = `
+  .bt{height:100%;padding:14px 16px;display:flex;flex-direction:column;min-height:0;container-type:size}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+  .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute)}
+  .bb{display:flex;align-items:center;gap:18px;flex:1;min-height:0}
+  .ring{position:relative;height:min(112px,calc(100cqh - 44px));aspect-ratio:1;flex:none}
+  .ring svg{width:100%;height:100%}
+  .ring b{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(17px,7cqh,26px);font-weight:600}
+  .tx{flex:1;min-width:0}
+  .big{font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .chip{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:rgba(180,140,255,.18);color:#b48cff}
+  .sub{font-size:13px;color:var(--gh-mute);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:8px;border-radius:99px;background:rgba(255,255,255,.08);margin:10px 0 6px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,rgba(180,140,255,.55),#b48cff)}
+  .mini{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--gh-mute)}.mini b{color:var(--gh-txt);font-weight:600}
+  .msg{padding:14px 16px;font-size:13px;color:var(--gh-mute);line-height:1.45}
+  @container (max-height:150px){.bar{display:none}.big{font-size:17px}}
+`;
+class GlassHomeBatteryCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-battery-editor'); }
+  static getStubConfig() { return {}; }
+  setConfig(config) { this._config = { ...(config || {}) }; this._sig = ''; if (this._hass) this._render(); }
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (!this._config) return;
+    if (first) this._load();
+    this._render();
+  }
+  connectedCallback() { this._tick = setInterval(() => this._load(), 5 * 60e3); }
+  disconnectedCallback() { clearInterval(this._tick); }
+  getCardSize() { return 3; }
+  getGridOptions() { return { columns: 5, rows: 3 }; }
+
+  // heute geladen / entladen aus dem Energie-Dashboard (Batterie)
+  async _load() {
+    const h = this._hass;
+    if (!h?.callWS) return;
+    try {
+      const ids = energyIds(await energyPrefs(h));
+      const all = [...ids.batIn, ...ids.batOut];
+      if (!all.length) return;
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const res = await h.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: 'day', statistic_ids: all, types: ['change'], units: { energy: 'kWh' } });
+      const sum = (l) => l.reduce((a, id) => a + (res[id] || []).reduce((x, r) => x + (r.change || 0), 0), 0);
+      this._today = { in: sum(ids.batIn), out: sum(ids.batOut) };
+      this._sig = '';
+      this._render();
+    } catch (e) { /* ohne Tageswerte weiter */ }
+  }
+
+  _render() {
+    const h = this._hass, c = this._config;
+    const n = energyNow(h, { battery_power: c.battery_power, battery_soc: c.battery_soc, invert_battery: c.invert_battery });
+    const t = this._today;
+    const sig = [n.soc, n.bat == null ? '' : Math.round(n.bat * 100), t?.in, t?.out].join('|');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const style = `<style>${GH_STYLE}${BAT_STYLE}</style>`;
+    const cap = Number(c.capacity) || null;
+    const bIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${FLOW_ICON.bat}</svg>`;
+    const head = `<div class="hd">${bIcon}${esc(c.name || 'Akku')}<small>${cap ? `${fmt(cap, cap % 1 ? 1 : 0)} kWh Speicher` : ''}</small></div>`;
+    if (n.soc == null) {
+      this.shadowRoot.innerHTML = `${style}<div class="bt p">${head}<div class="msg" style="padding:8px 0">Akku-Ladestand im Karten-Editor wählen.</div></div>`;
+      return;
+    }
+    const soc = Math.max(0, Math.min(100, n.soc)), b = n.bat;
+    const state = b == null ? '' : b > 0.02 ? 'lädt' : b < -0.02 ? 'entlädt' : 'bereit';
+    // Restzeit bis voll bzw. leer
+    let rest = '';
+    if (cap && b && Math.abs(b) > 0.05) {
+      const hrs = b > 0 ? ((100 - soc) / 100) * cap / b : (soc / 100) * cap / -b;
+      const hh = Math.floor(hrs), mm = Math.round((hrs - hh) * 60);
+      if (hrs < 48) rest = `${b > 0 ? 'voll' : 'leer'} in ca. ${[hh ? `${hh} Std` : '', mm || !hh ? `${mm} Min` : ''].filter(Boolean).join(' ')}`;
+    }
+    const subs = [rest, cap ? `${fmt((soc / 100) * cap)} von ${fmt(cap, cap % 1 ? 1 : 0)} kWh` : ''].filter(Boolean).join(' · ');
+    const C = 2 * Math.PI * 47;
+    this.shadowRoot.innerHTML = `${style}<div class="bt p">${head}
+      <div class="bb">
+        <div class="ring"><svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="10"/>
+          <circle cx="56" cy="56" r="47" fill="none" stroke="#b48cff" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(soc / 100) * C} ${C}" transform="rotate(-90 56 56)"/></svg><b>${Math.round(soc)} %</b></div>
+        <div class="tx">
+          ${b != null ? `<div class="big">${fmt(Math.abs(b))} kW <span class="chip">${state}</span></div>` : ''}
+          ${subs ? `<div class="sub">${esc(subs)}</div>` : ''}
+          <div class="bar"><i style="width:${soc}%"></i></div>
+          ${t ? `<div class="mini"><span>heute geladen <b>${kWh(t.in)}</b></span><span>entladen <b>${kWh(t.out)}</b></span></div>` : ''}
+        </div>
+      </div></div>`;
+  }
+}
+class GlassHomeBatteryEditor extends GlassHomeFormEditor {
+  static schema = [
+    { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
+    { name: 'battery_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
+    { name: 'capacity', selector: { number: { min: 0, max: 200, step: 0.1, mode: 'box', unit_of_measurement: 'kWh' } } },
+    { name: 'invert_battery', selector: { boolean: {} } },
+    { name: 'name', selector: { text: {} } },
+  ];
+  static labels = { ...FLOW_LABELS, name: 'Titel (Standard: Akku)' };
+  static defaults = {};
 }
 
 /* ------------------------------------------------------------------ */
@@ -3112,6 +3462,10 @@ if (!customElements.get('glass-home-status-editor')) customElements.define('glas
 if (!customElements.get('glass-home-popup')) customElements.define('glass-home-popup', GlassHomePopup);
 if (!customElements.get('glass-home-energy')) customElements.define('glass-home-energy', GlassHomeEnergyCard);
 if (!customElements.get('glass-home-energy-editor')) customElements.define('glass-home-energy-editor', GlassHomeEnergyEditor);
+if (!customElements.get('glass-home-energy-flow')) customElements.define('glass-home-energy-flow', GlassHomeEnergyFlowCard);
+if (!customElements.get('glass-home-energy-flow-editor')) customElements.define('glass-home-energy-flow-editor', GlassHomeEnergyFlowEditor);
+if (!customElements.get('glass-home-battery')) customElements.define('glass-home-battery', GlassHomeBatteryCard);
+if (!customElements.get('glass-home-battery-editor')) customElements.define('glass-home-battery-editor', GlassHomeBatteryEditor);
 if (!customElements.get('glass-home-waste')) customElements.define('glass-home-waste', GlassHomeWasteCard);
 if (!customElements.get('glass-home-waste-editor')) customElements.define('glass-home-waste-editor', GlassHomeWasteEditor);
 if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-agenda', GlassHomeAgendaCard);
@@ -3131,7 +3485,9 @@ for (const card of [
   { type: 'glass-home-nav', name: 'Glass Home – Navigation', description: 'Navigation aus den Ansichten des Dashboards, mit Uhrzeit.' },
   { type: 'glass-home-header', name: 'Glass Home – Kopfzeile', description: 'Begrüßung, Hinweise mit Aktion (offene Fenster, lange brennendes Licht, Schloss) und Wetter.' },
   { type: 'glass-home-status', name: 'Glass Home – Status', description: 'Kacheln für Lichter, Rollos, Steckdosen, Anwesenheit, Temperatur, Fenster und Schlösser. Tippen öffnet die Übersicht; Steckdosen und Temperaturfühler lassen sich dort hinzufügen und entfernen.' },
-  { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Tageskurve aus dem Energie-Dashboard.' },
+  { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Diagramm aus dem Energie-Dashboard, Zeitraum Heute bis Jahr. Kacheln und Diagramm auch einzeln.' },
+  { type: 'glass-home-energy-flow', name: 'Glass Home – Energiefluss', description: 'PV, Netz, Haus und Akku jetzt, mit Fluss-Animation.' },
+  { type: 'glass-home-battery', name: 'Glass Home – Akku', description: 'Ladestand, Leistung, Restzeit und heute geladen/entladen.' },
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
   { type: 'glass-home-temperature', name: 'Glass Home – Temperatur', description: 'Räume mit Temperatur, Luftfeuchte und Farbbalken, Warnung bei hoher Feuchte. Die Statuskachel Temperatur zeigt den Durchschnitt.' },

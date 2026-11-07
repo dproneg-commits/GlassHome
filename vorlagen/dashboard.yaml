@@ -1,4 +1,4 @@
-# Glass Home – allgemeine Dashboard-Vorlage (Stand Eltern-VM, Glass Home 0.9.4)
+# Glass Home – allgemeine Dashboard-Vorlage (Stand Eltern-VM, Glass Home 0.9.5)
 # Einspielen: Dashboard anlegen → öffnen → ⋮ → Rohkonfigurationseditor → alles ersetzen.
 # Anpassen: names.viewer (Begrüßung) und kiosk (Benutzer ohne HA-Kopfzeile/Seitenleiste).
 # Größen danach im Bearbeiten-Modus ziehen. Karten ohne grid_options sind 4×3.
@@ -49,6 +49,26 @@ views:
           rows: 1
         kiosk:
           - viewer
+      # Sensoren im Karten-Editor wählen (✎): PV, Netz, Haus, Akku-Leistung und -Ladestand
+      - type: custom:glass-home-energy-flow
+        grid_options:
+          columns: 7
+          rows: 5
+      - type: custom:glass-home-battery
+        grid_options:
+          columns: 5
+          rows: 3
+      # kWh-Werte aus dem Energie-Dashboard, Zeitraum gilt für Kacheln und Diagramm
+      - type: custom:glass-home-energy
+        part: tiles
+        grid_options:
+          columns: 5
+          rows: 2
+      - type: custom:glass-home-energy
+        part: chart
+        grid_options:
+          columns: 12
+          rows: 4
     icon: mdi:lightning-bolt
   - title: Kamera
     path: kamera
