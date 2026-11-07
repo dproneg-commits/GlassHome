@@ -2871,8 +2871,12 @@ class GlassHomeGridView extends HTMLElement {
       // Tablet hochkant: Drittel -> Hälfte; Handy: Kacheln bis 2 breit halb, sonst ganz
       cell.style.cssText = `--w:${w};--h:${h};--wm:${w === 4 ? 6 : w === 8 ? 12 : w === 9 ? 8 : w === 3 ? 4 : w};--ws:${w <= 2 ? 6 : 12}`;
       if (this._hass) card.hass = this._hass;
-      card.toggleAttribute('gh-flat', (this._config?.icon_colors ?? this._lovelace?.config?.views?.[this._index]?.icon_colors) === false);
       cell.appendChild(card);
+      // HA steckt die Karte in hui-card: Attribut an die Glass-Karte selbst, auch wenn sie später entsteht
+      const flat = (this._config?.icon_colors ?? this._lovelace?.config?.views?.[this._index]?.icon_colors) === false;
+      const mark = () => [card, ...card.querySelectorAll('*')].forEach((el) => { if (el.localName.startsWith('glass-home-')) el.toggleAttribute('gh-flat', flat); });
+      mark();
+      new MutationObserver(mark).observe(card, { childList: true, subtree: true });
       if (edit) {
         const ed = document.createElement('div');
         ed.className = 'ed';
