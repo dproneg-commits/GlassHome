@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.4: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.5: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -140,17 +140,50 @@ Je Raum eine Zeile mit Raumsymbol, Farbbalken nach Temperatur (15–27 °C), Tem
 
 ## Energie
 
+Die Energie-Seite der Vorlage hat vier Karten: Energiefluss (7 × 5), Akku (5 × 3), Kacheln (5 × 2) und Diagramm (12 × 4).
+
 ```yaml
 type: custom:glass-home-energy
-chart: true                        # Tageskurve
-solar_power: sensor.pv_leistung    # optional, Leistung jetzt (W oder kW)
+part: both                         # both | tiles (nur Kacheln) | chart (nur Diagramm)
+periods: true                      # Umschalter Heute, Gestern, Woche, Monat, Jahr
+chart: true
+battery_soc: sensor.akku_ladestand # optional, Ladestand als Kurve bei Heute/Gestern
+solar_power: sensor.pv_leistung    # optional, Leistung jetzt in den Kacheln (nur Heute)
 grid_power: sensor.netz_leistung   # optional, + Bezug / − Einspeisung
 home_power: sensor.haus_leistung   # optional, sonst PV + Netz
 ```
 
-- Tageswerte (kWh) und Stundenkurve kommen aus dem HA-Energie-Dashboard (Solar, Netzbezug, Einspeisung). Ohne Energie-Dashboard zeigt die Karte einen Hinweis.
-- Ohne Leistungssensoren zeigen die Kacheln die kWh von heute statt kW jetzt.
-- Autarkie = Anteil des Verbrauchs, der nicht aus dem Netz kam. Batterien werden noch nicht berücksichtigt.
+- kWh-Werte kommen aus dem HA-Energie-Dashboard (Solar, Netzbezug, Einspeisung, Batterie). Ohne Energie-Dashboard zeigt die Karte einen Hinweis.
+- Der gewählte Zeitraum gilt für alle Energiekarten der Seite, so können Kacheln und Diagramm getrennt stehen.
+- Heute und Gestern: Stundenkurve mit PV, Hausverbrauch, Netzbezug (Balken) und Akku-Ladestand. Woche und Monat: Balken je Tag, Jahr: je Monat.
+- Hausverbrauch = Bezug + PV + Akku entladen − Einspeisung − Akku geladen. Autarkie = Anteil des Verbrauchs, der nicht aus dem Netz kam.
+
+### Energiefluss
+
+```yaml
+type: custom:glass-home-energy-flow
+solar_power: sensor.pv_leistung      # W oder kW
+grid_power: sensor.netz_leistung     # + Bezug / − Einspeisung
+home_power: sensor.haus_leistung     # optional, sonst berechnet
+battery_power: sensor.akku_leistung  # + lädt / − entlädt
+battery_soc: sensor.akku_ladestand   # %
+invert_battery: false                # true, wenn der Sensor beim Entladen + zeigt
+invert_grid: false                   # true, wenn der Sensor bei Einspeisung + zeigt
+```
+
+PV, Netz, Haus und Akku als Kreise, animierte Punkte zeigen, wohin der Strom gerade fließt. Ohne PV oder Akku fallen diese Kreise weg. PV- und Netz-Leistung werden aus dem Energie-Dashboard übernommen, falls dort hinterlegt.
+
+### Akku
+
+```yaml
+type: custom:glass-home-battery
+battery_soc: sensor.akku_ladestand
+battery_power: sensor.akku_leistung  # + lädt / − entlädt
+capacity: 10                         # kWh, für Restzeit und „x von y kWh“
+invert_battery: false
+```
+
+Ladestand als Ring, Leistung mit „lädt/entlädt“, Restzeit bis voll oder leer, heute geladen und entladen (aus der Batterie im Energie-Dashboard).
 
 ## Müll
 

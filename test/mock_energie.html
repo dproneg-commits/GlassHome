@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Home · Mock Energie</title>
+<style>
+html,body{margin:0;background:#141619;color:#eef1f4;font-family:Inter,system-ui,sans-serif}
+body{min-height:100vh;background:radial-gradient(60vw 60vw at 5% 0%,rgba(120,130,145,.32),transparent 65%),radial-gradient(50vw 50vw at 100% 100%,rgba(90,95,105,.35),transparent 65%),linear-gradient(160deg,#141619,#22262b) fixed}
+</style></head><body>
+<div id="host"></div>
+<script src="../dist/glass-home.js"></script>
+<script>
+// Energie-Seite wie in vorlagen/dashboard.yaml, Werte erfunden. ?p=week|month|year|yesterday Zeitraum, ?bat=0 ohne Akku, ?empty=1 ohne Sensoren
+const q = new URLSearchParams(location.search);
+const S = {};
+const add = (id, state, attrs) => { S[id] = { entity_id: id, state: String(state), attributes: { friendly_name: id, ...attrs }, last_changed: new Date().toISOString() }; };
+const W = { unit_of_measurement: 'W', device_class: 'power' };
+add('sensor.pv_leistung', 2800, W);
+add('sensor.netz_leistung', -500, W);
+add('sensor.akku_leistung', 1400, W);
+add('sensor.akku_ladestand', 72, { unit_of_measurement: '%', device_class: 'battery' });
+add('sensor.haus_leistung', 900, W);
+const bat = q.get('bat') !== '0';
+// Stunden-, Tages- und Monatswerte erfinden
+const rnd = (s) => () => (s = (s * 9301 + 49297) % 233280) / 233280;
+const stats = (msg) => {
+  const out = {}, start = new Date(msg.start_time), end = msg.end_time ? new Date(msg.end_time) : new Date();
+  const r = rnd(start.getDate() * 31 + start.getMonth());
+  const rows = [];
+  for (let t = new Date(start); t < end;) {
+    rows.push(new Date(t));
+    if (msg.period === 'hour') t.setHours(t.getHours() + 1); else if (msg.period === 'day') t.setDate(t.getDate() + 1); else t.setMonth(t.getMonth() + 1);
+  }
+  for (const id of msg.statistic_ids) out[id] = rows.map((t) => {
+    const h = t.getHours(), m = t.getMonth();
+    const season = [0.15, 0.25, 0.5, 0.7, 0.9, 1, 1, 0.9, 0.65, 0.4, 0.2, 0.12][m];
+    let v;
+    if (msg.types.includes('mean')) return { start: +t, mean: [38, 35, 32, 29, 27, 24, 21, 18, 20, 28, 40, 52, 63, 72, 80, 86, 88, 85, 74, 62, 52, 46, 42, 40][h] };
+    if (msg.period === 'hour') {
+      const pv = Math.max(0, Math.sin((h - 7.3) / 9.4 * Math.PI)) * 3.1;
+      v = { 'sensor.pv_energie': pv, 'sensor.bezug': h < 7 ? 0.2 : h >= 18 ? 0.4 : 0.02, 'sensor.einspeisung': pv > 1.5 ? 0.4 : 0, 'sensor.akku_rein': pv > 1 ? 0.6 : 0, 'sensor.akku_raus': h >= 18 || h < 6 ? 0.25 : 0 }[id];
+    } else {
+      const k = msg.period === 'month' ? 30 : 1, pv = (4 + 28 * season) * (0.6 + r() * 0.8) * k;
+      v = { 'sensor.pv_energie': pv, 'sensor.bezug': Math.max(1, 10 - pv / k * 0.6) * k, 'sensor.einspeisung': Math.max(0, pv / k - 8) * 0.7 * k, 'sensor.akku_rein': Math.min(8, pv / k * 0.3) * k, 'sensor.akku_raus': Math.min(7, pv / k * 0.28) * k }[id];
+    }
+    return { start: +t, change: v };
+  });
+  return out;
+};
+const hass = {
+  states: S, entities: {}, devices: {}, areas: {}, user: { name: 'Dominik', is_admin: true }, config: { time_zone: 'Europe/Vienna' },
+  connection: { subscribeMessage() { return Promise.resolve(() => {}); } }, callService() {},
+  async callWS(msg) {
+    if (msg.type === 'energy/get_prefs') return { energy_sources: [{ type: 'solar', stat_energy_from: 'sensor.pv_energie' },
+      { type: 'grid', flow_from: [{ stat_energy_from: 'sensor.bezug' }], flow_to: [{ stat_energy_to: 'sensor.einspeisung' }] },
+      ...(bat ? [{ type: 'battery', stat_energy_from: 'sensor.akku_raus', stat_energy_to: 'sensor.akku_rein' }] : [])] };
+    if (msg.type === 'recorder/statistics_during_period') return stats(msg);
+    throw new Error(msg.type);
+  },
+};
+const e = q.get('empty') === '1';
+const view = { title: 'Energie', path: 'energie', type: 'custom:glass-home-grid', theme: 'glass_home_graphit', cards: [
+  { type: 'custom:glass-home-nav', grid_options: { columns: 12, rows: 1 } },
+  { type: 'custom:glass-home-energy-flow', grid_options: { columns: 7, rows: 5 }, ...(e ? {} : { solar_power: 'sensor.pv_leistung', grid_power: 'sensor.netz_leistung', home_power: 'sensor.haus_leistung', ...(bat ? { battery_power: 'sensor.akku_leistung', battery_soc: 'sensor.akku_ladestand' } : {}) }) },
+  ...(bat ? [{ type: 'custom:glass-home-battery', grid_options: { columns: 5, rows: 3 }, capacity: 10, ...(e ? {} : { battery_power: 'sensor.akku_leistung', battery_soc: 'sensor.akku_ladestand' }) }] : []),
+  { type: 'custom:glass-home-energy', part: 'tiles', grid_options: { columns: 5, rows: bat ? 2 : 5 } },
+  { type: 'custom:glass-home-energy', part: 'chart', ...(e ? {} : { battery_soc: 'sensor.akku_ladestand' }), grid_options: { columns: 12, rows: 4 } },
+] };
+const conf = { title: 'Zuhause', views: [{ title: 'Start', path: 'start', icon: 'mdi:home', cards: [] }, { ...view, icon: 'mdi:lightning-bolt' }, { title: 'Kamera', path: 'kamera', icon: 'mdi:camera', cards: [] }] };
+const lovelace = { config: conf, editMode: false };
+const cards = view.cards.map((cc) => { const el = document.createElement(cc.type.slice(7)); el.setConfig(cc); el.config = cc; return el; });
+const v = document.createElement('glass-home-grid');
+const host = document.getElementById('host'); host.lovelace = lovelace; host.appendChild(v);
+v.setConfig(view); v.hass = hass; v.lovelace = lovelace; v.index = 1; v.cards = cards; v.hass = hass;
+if (q.get('p')) setTimeout(() => cards.at(-1).shadowRoot?.querySelector(`.seg button[data-p="${q.get('p')}"]`)?.click(), 400);
+</script></body></html>
