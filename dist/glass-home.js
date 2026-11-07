@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.3';
+const GH_VERSION = '0.9.4';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -495,6 +495,7 @@ const HEADER_STYLE = `
   .al .act{background:rgba(255,255,255,.14);color:var(--gh-txt);border:0;border-radius:999px;padding:5px 11px;
       font:inherit;font-weight:600;font-size:12px;cursor:pointer}
   .al .act:active{transform:scale(.96)}
+  .al.info{padding:4px 12px;background:rgba(255,255,255,.06);border-color:var(--gh-line);color:var(--gh-txt);cursor:pointer}.al.info svg{color:var(--c)}
   .al.more{padding:4px 12px;color:var(--gh-mute);background:rgba(255,255,255,.06);border-color:var(--gh-line)}
   .wx{padding:16px 20px;display:flex;align-items:center;gap:16px;cursor:pointer;
       background:linear-gradient(135deg,rgba(255,200,90,.12),rgba(255,255,255,.05) 60%),var(--gh-bg)}
@@ -644,6 +645,14 @@ class GlassHomeHeaderCard extends HTMLElement {
       if (locks.length && locks.every((id) => h.states[id].state === 'locked')) out.push({ ok: true, text: locks.length === 1 ? `${nm(locks[0])} versperrt` : 'Alles versperrt', icon: 'lock' });
       else out.push({ ok: true, text: 'Alles in Ordnung', icon: 'check' });
     }
+    // nächster Mülltermin immer zeigen (ab übermorgen; heute/morgen kommt oben als Hinweis)
+    if (c.show_waste_next !== false) {
+      const next = [];
+      for (const id of wasteSensors(h)) next.push({ id, name: nm(id), d: Number(h.states[id].attributes.daysTo) });
+      if (!next.length) for (const id of ids.filter((x) => isWasteCal(h, x))) { const a = h.states[id].attributes; if (a.message) next.push({ id, name: a.message, d: daysUntil(a.start_time) }); }
+      const n = next.filter((x) => x.d >= 2).sort((a, b) => a.d - b.d)[0];
+      if (n && !next.some((x) => x.d === 0 || x.d === 1)) out.push({ info: true, color: wasteColor(n.name), text: `${n.name} ${dayWord(n.d)}`, icon: 'trash', run: () => this._moreInfo(n.id) });
+    }
     return out;
   }
 
@@ -715,14 +724,14 @@ class GlassHomeHeaderCard extends HTMLElement {
           <h1>${greeting()}${who ? `, <b>${esc(who)}</b>` : ''}</h1>
           <p>${esc(this._summary())}</p>
           ${alerts.length ? `<div class="alerts">${shown.map((al, i) => `
-            <span class="al ${al.ok ? 'ok' : ''}">${icon(al.icon, 16)}${esc(al.text)}${al.act ? `<button class="act" data-i="${i}">${al.act}</button>` : ''}</span>`).join('')}
+            <span class="al ${al.ok ? 'ok' : ''} ${al.info ? 'info' : ''}" ${al.info ? `style="--c:${al.color}" data-i="${i}"` : ''}>${icon(al.icon, 16)}${esc(al.text)}${al.act ? `<button class="act" data-i="${i}">${al.act}</button>` : ''}</span>`).join('')}
             ${rest > 0 ? `<span class="al more">+${rest} weitere</span>` : ''}</div>` : ''}
         </section>`;
     const wxPart = part === 'hero' ? '' : wxHtml;
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${HEADER_STYLE}</style>
       <div class="wrap ${wxPart && heroHtml ? '' : 'nowx'} ${heroHtml && wxPart.includes('wx wk') ? 'wide' : ''}">${heroHtml}${wxPart}</div>`;
 
-    this.shadowRoot.querySelectorAll('.act').forEach((b) => b.addEventListener('click', (ev) => {
+    this.shadowRoot.querySelectorAll('.act,.al.info').forEach((b) => b.addEventListener('click', (ev) => {
       ev.stopPropagation();
       shown[b.dataset.i].run();
     }));
@@ -1285,7 +1294,7 @@ const ALL_KINDS = ['openings', 'lights', 'covers', 'plugs', 'presence', 'climate
 const STATUS_STYLE = `
   :host{container-type:inline-size;height:100%}
   .row{height:100%;box-sizing:border-box;display:grid;grid-template-columns:repeat(var(--n,4),minmax(0,1fr));gap:10px}
-  .tile{display:flex;align-items:center;gap:12px;padding:10px 14px;min-height:62px;cursor:pointer;user-select:none;-webkit-user-select:none;transition:transform .12s,border-color .3s}
+  .tile{display:flex;align-items:center;gap:12px;padding:10px 14px;min-height:0;overflow:hidden;cursor:pointer;user-select:none;-webkit-user-select:none;transition:transform .12s,border-color .3s}
   .tile:active{transform:scale(.97)}
   .tile .ic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:none;
             background:rgba(var(--c),.16);color:rgb(var(--c))}
@@ -1298,9 +1307,9 @@ const STATUS_STYLE = `
   @container (max-width:1100px){
     .row{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(118px,1fr);gap:8px;overflow-x:auto;scrollbar-width:none}
     .row::-webkit-scrollbar{display:none}
-    .tile{padding:8px 10px;gap:8px}.tile .ic{width:30px;height:30px;border-radius:10px}.tile b{font-size:15px}.tile small{font-size:11.5px}
+    .tile{padding:6px 10px;gap:8px}.tile .ic{width:30px;height:30px;border-radius:10px}.tile b{font-size:15px}.tile small{font-size:11.5px}
   }
-  @container (max-width:520px){ .row{grid-template-columns:1fr 1fr;grid-auto-flow:row;grid-auto-columns:auto;overflow:visible} .tile{padding:10px 12px} }
+  @container (max-width:520px){ .row{grid-template-columns:1fr 1fr;grid-auto-flow:row;grid-auto-columns:auto;overflow:visible} .tile{padding:10px 12px;min-height:62px} }
 `;
 
 class GlassHomeStatusCard extends HTMLElement {
@@ -2080,6 +2089,21 @@ function wasteSensors(h) {
 const dayWord = (d) => (d === 0 ? 'heute' : d === 1 ? 'morgen' : d === 2 ? 'übermorgen' : `in ${d} Tagen`);
 
 const WASTE_STYLE = `
+  :host{container-type:inline-size}
+  /* kompakt: bis zu 4 Abfuhren als 2×2-Kacheln, die nächste hervorgehoben */
+  .wg{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(0,1fr);gap:8px}
+  .wg.one{grid-template-columns:1fr}
+  .wt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:14px;min-width:0;overflow:hidden;cursor:pointer;
+      background:color-mix(in srgb,var(--c) 10%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%,transparent)}
+  .wt.nx{background:color-mix(in srgb,var(--c) 24%,transparent);border-color:color-mix(in srgb,var(--c) 65%,transparent)}
+  .wt .bin{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--c);color:#fff;flex:none}
+  .wt>div{min-width:0}
+  .wt b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wt small{display:block;font-size:12px;color:var(--gh-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wt.soon small{color:var(--gh-warn);font-weight:600}
+  .wt em{display:block;font-style:normal;font-size:11.5px;color:var(--gh-dim);white-space:nowrap}
+  .card.tight .wt em{display:none}.card.tight .wt .bin{width:28px;height:28px;border-radius:9px}
+  @container (max-width:300px){.wg{grid-template-columns:1fr}.wt em{display:none}}
   .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;overflow:hidden}
   .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:10px}
   .card.tight .wn{padding:8px 10px}.card.tight .wn .bin{width:36px;height:36px}.card.tight .hd{margin-bottom:6px}
@@ -2171,15 +2195,15 @@ class GlassHomeWasteCard extends HTMLElement {
     } else if (!items.length) {
       body = '<div class="msg">Keine Abholtermine gefunden. Die Integration „Waste Collection Schedule“ einrichten (Einstellungen → Marketplace).</div>';
     } else {
-      const [n, ...rest] = items;
-      const hint = n.d === 1 ? ' · heute Abend rausstellen' : n.d === 0 ? ' · heute' : '';
-      body = `<div class="wn ${n.d <= 1 ? 'soon' : ''}" style="--c:${wasteColor(n.name)}"><span class="bin">${icon('trash', 22)}</span>
-          <div><b>${esc(n.name)}</b><small>${dayWord(n.d)}${hint}</small></div></div>
-        ${rest.map((x) => `<div class="wl" style="--c:${wasteColor(x.name)}"><i></i>${esc(x.name)}<small>${x.d <= 2 ? dayWord(x.d) : `${WEEKDAY[x.date.getDay()]}., ${x.date.getDate()}.${x.date.getMonth() + 1}.`}</small></div>`).join('')}`;
+      const four = items.slice(0, 4);
+      items.length = four.length;
+      body = `<div class="wg ${four.length === 1 ? 'one' : ''}">${four.map((x, i) => `<div class="wt ${i === 0 ? 'nx' : ''} ${x.d <= 1 ? 'soon' : ''}" style="--c:${wasteColor(x.name)}">
+          <span class="bin">${icon('trash', 18)}</span><div><b>${esc(x.name)}</b><small>${dayWord(x.d)}${x.d === 1 ? ' · rausstellen' : ''}</small>
+          <em>${WEEKDAY[x.date.getDay()]}., ${x.date.getDate()}.${x.date.getMonth() + 1}.</em></div></div>`).join('')}</div>`;
     }
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${WASTE_STYLE}</style>
       <div class="card p"><div class="hd">${icon('trash', 18)}${esc(this._config.title || 'Müllabfuhr')}</div>${body}</div>`;
-    this.shadowRoot.querySelectorAll('.wn,.wl').forEach((el, i) => el.addEventListener('click', () =>
+    this.shadowRoot.querySelectorAll('.wt').forEach((el, i) => el.addEventListener('click', () =>
       this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: items[i].id }, bubbles: true, composed: true }))));
     this._fit();
     if (!this._ro && window.ResizeObserver) { this._ro = new ResizeObserver(() => this._fit()); this._ro.observe(this); }
@@ -2191,12 +2215,10 @@ class GlassHomeWasteCard extends HTMLElement {
     this._raf = requestAnimationFrame(() => {
       const card = this.shadowRoot?.querySelector('.card');
       if (!card || !card.clientHeight) return;
-      const rows = [...card.querySelectorAll('.wl')];
+      // Kacheln zu niedrig: Datum ausblenden, Symbol kleiner
       card.classList.remove('tight');
-      rows.forEach((r) => { r.style.display = ''; });
-      const over = () => card.scrollHeight > card.clientHeight + 1;
-      for (let i = rows.length - 1; i >= 0 && over(); i--) rows[i].style.display = 'none';
-      if (over()) card.classList.add('tight');
+      const tiles = [...card.querySelectorAll('.wt')];
+      if (tiles.some((t) => t.scrollHeight > t.clientHeight + 1) || card.scrollHeight > card.clientHeight + 1) card.classList.add('tight');
     });
   }
 }
