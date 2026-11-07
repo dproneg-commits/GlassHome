@@ -159,7 +159,8 @@ max: 5
 
 - Braucht die HACS-Integration „Waste Collection Schedule“ mit einem Sensor pro Müllart (Attribut `daysTo`).
 - Farben nach Name: Bio braun, Rest grau, Gelber Sack gelb, Papier rot, Glas grün.
-- Die Kopfzeile zeigt zusätzlich „Morgen Biomüll“ bzw. „Heute …“.
+- Kompakt: bis zu 4 Abfuhren als 2×2-Kacheln, die nächste hervorgehoben; passt in 4 × 3.
+- Die Kopfzeile zeigt „Morgen Biomüll“ bzw. „Heute …“ als Hinweis und sonst immer den nächsten Termin („Biomüll in 5 Tagen“, abschaltbar mit `show_waste_next: false` an der Kopfzeile).
 
 ## Kalender
 
