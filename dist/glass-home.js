@@ -517,7 +517,7 @@ const HEADER_STYLE = `
     .wk .nw .t{font-size:30px}.wk .nw small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wk .nw>div{min-width:0}.wx.wk{gap:6px}}
   .wk7 em{font-style:normal;font-size:11px;color:var(--gh-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .wk7 b{font-size:13px;font-weight:600;white-space:nowrap}.wk7 i{font-style:normal;font-size:11px;font-weight:400;color:var(--gh-mute)}
-  .wrap{height:100%}.wrap>section{height:100%}
+  .wrap{height:100%;grid-template-rows:minmax(0,1fr)}.wrap>section{height:100%;min-height:0;overflow:hidden}
   /* schmale Begrüßung: Hinweise in einer Zeile zum Wischen statt umbrechen */
   @container (max-width:640px){
     .alerts{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 90%,transparent)}
@@ -525,7 +525,7 @@ const HEADER_STYLE = `
     .al{flex:none}
   }
   @container (max-width:620px){
-    .wrap,.wrap.wide{grid-template-columns:1fr}
+    .wrap,.wrap.wide{grid-template-columns:1fr;grid-template-rows:auto}.wrap>section{height:auto}
     .wrap.wide .wx.wk{container-type:inline-size}
     .hero{padding:14px 16px}.hero h1{font-size:24px}
     .wx{padding:12px 16px}.wx .t{font-size:40px}
