@@ -1,26 +1,28 @@
 # Glass Home – Arbeitsstand
 
-Stand 23.10.2026, Version 0.6.0 (`dist/glass-home.js`, Doku im README.md).
+Stand 07.11.2026, Version 0.9.4 (`dist/glass-home.js`, Doku im README.md).
 Konzept: https://claude.ai/artifact/4R87DLWZevJCfrfkQHH4v9 · Mockups: `../mockups_kunde/` (Design Graphit gewählt).
 
-## Testumgebung
-- Proxmox-VM mit HAOS, Hostname `ha-test`, Demo-Integration, Studio Code Server.
-- Datei liegt in `/config/www/glass-home/`, Ressource `/local/glass-home/glass-home.js?v=<Version>`.
-- Theme `glass_home_graphit` in `/config/themes/`.
-- Mocks ohne HA: `test/mock.html` (Licht/Rollo), `test/mock_kunde1.html` (PV + Müll).
+## Umgebungen
+- Test-VM 192.168.0.19 (HAOS, Demo-Integration), Eltern-VM 192.168.0.48. Nie `homeassistant.local`.
+- Datei in `/config/www/glass-home/`, Ressource `/local/glass-home/glass-home.js?v=<Version>`.
+- Theme `glass_home_graphit` in `/config/themes/`, gilt nur in den Glass-Ansichten.
+- Mocks ohne HA: `test/mock*.html`.
 
-## In echtem HA getestet
-- Raumkarte, Kopfzeile, Navigation, Statuskacheln mit Popup (Flackern in 0.4.2 behoben, Rückmeldung offen).
+## Vorlage
+- `vorlagen/dashboard.yaml` = Dashboard der Eltern (07.11.2026), gilt als allgemeine Vorlage für alle Kunden.
+- Start: Navigation, Kopfzeile (Wetter 7 Tage), Status, Müll, Termine, Temperatur, Kalender. Energie und Kamera nur mit Navigation (noch leer).
 
-## Nur im Mock getestet
-- Energie, Müll (0.5.0) – Dominik hat eingebaut, Ergebnis-Screenshot offen.
-- Automatisches Dashboard (Strategie, 0.6.0) – noch nicht ausprobiert.
+## Stand der Karten
+- Glass-Raster (12 Spalten) ist Standard-Ansicht, Größen ändert Dominik im Bearbeiten-Modus.
+- Im echten HA: Raumkarte, Kopfzeile, Navigation, Status, Müll, Kalender, Temperatur (Eltern).
+- Strategie (automatisches Dashboard) nur im Mock geprüft.
 
 ## Entscheidungen
-- Keine Szenenleiste auf der Startseite, stattdessen Statuskacheln mit Popup (Szenenkarte bleibt optional).
-- Lichter/Rollos zählen überall alle sichtbaren, Temperatur nur mit Bereich.
+- Keine Szenenleiste auf der Startseite, stattdessen Statuskacheln mit Popup.
+- Lichter/Rollos zählen alle sichtbaren, Temperatur nur mit Bereich.
 
-## Nächste Schritte
-1. Strategie in HA testen (Spaltenbreiten prüfen).
-2. Einkauf/Termine-Karte.
-3. GitHub-Repo `glass-home` anlegen (Dominik), HACS-Release.
+## Offen
+1. Seiten Energie und Kamera füllen.
+2. Einspiel-Skript (scp + Ressource `?v=`) für Claude am PC.
+3. HACS-Release.
