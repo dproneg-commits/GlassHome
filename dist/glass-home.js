@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.2';
+const GH_VERSION = '0.9.3';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -503,12 +503,15 @@ const HEADER_STYLE = `
   .fc{display:flex;gap:10px;margin-top:8px;font-size:11.5px;color:var(--gh-mute)}.fc b{color:var(--gh-txt);font-weight:500}
   .wrap.nowx{grid-template-columns:1fr}
   .wrap.wide{grid-template-columns:1fr minmax(260px,400px)}
-  .wx.wk{flex-direction:column;align-items:stretch;justify-content:center;gap:8px;padding:10px 12px;min-width:0;overflow:hidden}
+  .wx.wk{flex-direction:column;align-items:stretch;justify-content:safe center;gap:8px;padding:10px 12px;min-width:0;overflow:hidden}
   .wk .nw{display:flex;align-items:center;gap:12px}.wk .nw .t{font-size:36px}.wk .nw small{margin-top:2px}
   .wk7{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:2px;text-align:center}
   .wk7 span{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border-radius:10px;min-width:0}
   .wk7 span.td{background:rgba(255,255,255,.07)}
-  .wx.wk{container-type:inline-size}.wk7 u{text-decoration:none}.wk7 s{display:none;text-decoration:none}
+  .wx.wk{container-type:size}.wk7 u{text-decoration:none}.wk7 s{display:none;text-decoration:none}
+  /* niedrige Wetterfläche: kompakter, damit oben nichts abgeschnitten wird */
+  @container (max-height:180px){.wx.wk{gap:4px;padding:8px 12px}.wk .nw{gap:10px}.wk .nw svg{width:34px;height:34px}.wk .nw .t{font-size:30px}.wk .nw .t sup{font-size:15px}.wk7 span{padding:2px 0;gap:1px}}
+  @container (max-height:150px){.wk .nw small{display:none}.wk7 i{display:none}}
   /* schmale Wetterfläche (z. B. 3 Spalten mit Seitenleiste): nur Höchstwert, kurzer Tagname */
   @container (max-width:300px){.wk7 i,.wk7 u{display:none}.wk7 s{display:inline}.wk7 b{font-size:12px}
     .wk .nw .t{font-size:30px}.wk .nw small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wk .nw>div{min-width:0}.wx.wk{gap:6px}}
@@ -523,6 +526,7 @@ const HEADER_STYLE = `
   }
   @container (max-width:620px){
     .wrap,.wrap.wide{grid-template-columns:1fr}
+    .wrap.wide .wx.wk{container-type:inline-size}
     .hero{padding:14px 16px}.hero h1{font-size:24px}
     .wx{padding:12px 16px}.wx .t{font-size:40px}
   }
@@ -2078,8 +2082,9 @@ function wasteSensors(h) {
 const dayWord = (d) => (d === 0 ? 'heute' : d === 1 ? 'morgen' : d === 2 ? 'übermorgen' : `in ${d} Tagen`);
 
 const WASTE_STYLE = `
-  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;overflow:auto}
+  .card{padding:14px 16px;display:flex;flex-direction:column;height:100%;overflow:hidden}
   .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-bottom:10px}
+  .card.tight .wn{padding:8px 10px}.card.tight .wn .bin{width:36px;height:36px}.card.tight .hd{margin-bottom:6px}
   .wn{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;margin-bottom:10px;
       background:color-mix(in srgb,var(--c) 22%,transparent);border:1px solid color-mix(in srgb,var(--c) 60%,transparent)}
   .wn .bin{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:var(--c);color:#fff;flex:none}
@@ -2178,6 +2183,23 @@ class GlassHomeWasteCard extends HTMLElement {
       <div class="card p"><div class="hd">${icon('trash', 18)}${esc(this._config.title || 'Müllabfuhr')}</div>${body}</div>`;
     this.shadowRoot.querySelectorAll('.wn,.wl').forEach((el, i) => el.addEventListener('click', () =>
       this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: items[i].id }, bubbles: true, composed: true }))));
+    this._fit();
+    if (!this._ro && window.ResizeObserver) { this._ro = new ResizeObserver(() => this._fit()); this._ro.observe(this); }
+  }
+
+  // nicht scrollen: nur so viele Termine zeigen, wie in die Kachel passen
+  _fit() {
+    cancelAnimationFrame(this._raf);
+    this._raf = requestAnimationFrame(() => {
+      const card = this.shadowRoot?.querySelector('.card');
+      if (!card || !card.clientHeight) return;
+      const rows = [...card.querySelectorAll('.wl')];
+      card.classList.remove('tight');
+      rows.forEach((r) => { r.style.display = ''; });
+      const over = () => card.scrollHeight > card.clientHeight + 1;
+      for (let i = rows.length - 1; i >= 0 && over(); i--) rows[i].style.display = 'none';
+      if (over()) card.classList.add('tight');
+    });
   }
 }
 
