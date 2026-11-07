@@ -58,6 +58,18 @@ Daraus entsteht bei jedem Laden:
 
 Neue Geräte oder Bereiche erscheinen ohne Zutun. Für eigene Änderungen: ⋮ → „Kontrolle übernehmen“. Dann wird daraus ein normales Dashboard mit denselben Karten, das sich aber nicht mehr selbst anpasst.
 
+## Farbige Icons
+
+Standardmäßig tragen die Icons Farbe: Statuskacheln (nur was an/offen ist, Aus bleibt grau), Kartentitel, Räume (feste Farbe je Raumart, z. B. Küche orange, Schlafzimmer lila, Wohnzimmer grün, Bad türkis), Wetter und Navigation. Der Graphit-Grund bleibt.
+
+```yaml
+# in der Ansicht (Raw-Editor), schaltet die Farben für alle Karten der Seite ab
+type: custom:glass-home-grid
+icon_colors: false
+```
+
+Eigene Raumfarben an Temperatur- und Räumekarte: `room_colors: {Küche: "#ff8a65", wohnzimmer: "#7ed08a"}` (Name oder area_id).
+
 ## Navigation
 
 ```yaml

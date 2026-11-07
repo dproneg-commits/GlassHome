@@ -1,10 +1,29 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.1';
+const GH_VERSION = '0.9.2';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
 /* glass_home_graphit oder ein eigenes Theme überschrieben werden.     */
 /* ------------------------------------------------------------------ */
+// Farbige Icons (Standard). Abschalten: Ansicht mit icon_colors: false (setzt gh-flat an jeder Karte)
+function COLOR_STYLE() { return `
+  :host(glass-home-temperature){--gh-hc:#ff8a65}:host(glass-home-agenda){--gh-hc:#aed581}:host(glass-home-rooms){--gh-hc:#b48cff}
+  :host(glass-home-energy){--gh-hc:#ffd54f}:host(glass-home-waste){--gh-hc:#d7a77b}:host(glass-home-calendar){--gh-hc:#4dd0e1}
+  :host(glass-home-scenes){--gh-hc:#ffb74d}
+  :host(glass-home-agenda) .cal .hd{--hc:#4dd0e1}
+  :host(:not([gh-flat])) .hd>svg,:host(:not([gh-flat])) .hd .ti svg{color:var(--hc,var(--gh-hc,var(--gh-mute)));padding:4px;margin:-4px 0;box-sizing:content-box;border-radius:9px;
+    background:color-mix(in srgb,var(--hc,var(--gh-hc,#fff)) 20%,transparent)}
+  :host(:not([gh-flat])) .tile:not(.off){background:linear-gradient(135deg,rgba(var(--c),.22),rgba(var(--c),.05) 70%),var(--gh-bg);border-color:rgba(var(--c),.40)}
+  :host(:not([gh-flat])) .tile:not(.off) .ic{background:linear-gradient(145deg,rgb(var(--c)),rgba(var(--c),.70));color:#15171a;box-shadow:0 4px 14px rgba(var(--c),.35)}
+  :host(:not([gh-flat])) .tr .ic,:host(:not([gh-flat])) .r .ic{background:linear-gradient(145deg,var(--rc,#7ab8ff),color-mix(in srgb,var(--rc,#7ab8ff) 65%,#000));color:#15171a;
+    border-radius:11px;box-shadow:0 4px 14px color-mix(in srgb,var(--rc,#7ab8ff) 35%,transparent)}
+  :host(:not([gh-flat])) .r{border-color:color-mix(in srgb,var(--rc,#7ab8ff) 45%,transparent);background:linear-gradient(135deg,color-mix(in srgb,var(--rc,#7ab8ff) 14%,transparent),transparent 70%)}
+  :host(:not([gh-flat])) .wx>svg,:host(:not([gh-flat])) .wx .nw>svg{color:#ffcf6b;filter:drop-shadow(0 0 14px rgba(255,190,80,.45))}
+  :host(:not([gh-flat])) .fc b{color:#ffcf6b}
+  :host(:not([gh-flat])) .nav a svg,:host(:not([gh-flat])) .nav a ha-icon{color:var(--nc)}
+  :host(:not([gh-flat])) .nav a.on{background:color-mix(in srgb,var(--nc) 22%,transparent)}
+`; }
+
 const GH_STYLE = `
   :host{
     --gh-txt:var(--glass-home-text,#eef1f4);
@@ -24,6 +43,7 @@ const GH_STYLE = `
      box-shadow:0 8px 30px rgba(0,0,0,.18);color:var(--gh-txt);font-family:var(--glass-home-font,Inter,system-ui,sans-serif);
      -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
   svg{flex:none;display:block}
+`+ COLOR_STYLE() + `
 `;
 
 const ICONS = {
@@ -71,6 +91,11 @@ const roomIcon = (name = '') => {
   if (/garten|terrasse|balkon/.test(n)) return 'leaf';
   return 'home';
 };
+
+// feste Farbe je Raumart, überschreibbar mit room_colors: {Name oder area_id: '#hex'}
+const ROOM_COLORS = { sofa: '#7ed08a', bed: '#b48cff', pot: '#ffb74d', drop: '#4dd0e1', desk: '#7ab8ff', star: '#f06292', leaf: '#aed581', home: '#90a4ae' };
+const roomColor = (name = '', id = '', own = {}) => own[name] || own[id] || ROOM_COLORS[roomIcon(name)] || ROOM_COLORS.home;
+const NAV_COLORS = ['#ffb74d', '#4dd0e1', '#7ed08a', '#b48cff', '#ff8a65', '#7ab8ff', '#f06292'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n, d = 1) => Number(n).toLocaleString('de-AT', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -1073,7 +1098,7 @@ class GlassHomeNavCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${NAV_STYLE}</style>
       <nav class="nav p">
-        ${items.map((it, i) => `<a class="${i === act ? 'on' : ''}" data-p="${esc(it.path)}" title="${esc(it.name)}">${anyIcon(it.icon, 20)}${it.name ? `<em>${esc(it.name)}</em>` : ''}</a>`).join('')}
+        ${items.map((it, i) => `<a class="${i === act ? 'on' : ''}" data-p="${esc(it.path)}" title="${esc(it.name)}" style="--nc:${NAV_COLORS[i % NAV_COLORS.length]}">${anyIcon(it.icon, 20)}${it.name ? `<em>${esc(it.name)}</em>` : ''}</a>`).join('')}
         ${items.length ? '' : '<span style="color:var(--gh-dim);font-size:13px;padding:0 8px">Keine Ansichten gefunden</span>'}
         <span class="sp"></span>
         ${this._config.show_clock ? '<div class="clk"><b></b><span></span></div>' : ''}
@@ -1633,10 +1658,10 @@ const TEMP_STYLE = `
   .hd small{margin-left:auto;font-weight:400;font-size:12.5px;color:var(--gh-mute);white-space:nowrap}
   .hd button{width:30px;height:30px;border-radius:9px;border:0;background:none;color:var(--gh-mute);cursor:pointer;display:grid;place-items:center;flex:none}
   .hd button:hover{background:rgba(255,255,255,.08)}
-  .tr{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;column-gap:12px;padding:10px 14px;border-radius:14px;
+  .tr{display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;column-gap:12px;padding:10px 14px;border-radius:14px;
       background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);cursor:pointer;transition:border-color .3s}
   .tr.warn{border-color:rgba(255,183,77,.6);box-shadow:0 0 0 3px rgba(255,183,77,.06)}
-  .tr .ic{color:var(--gh-mute);display:flex;justify-content:center}
+  .tr .ic{color:var(--gh-mute);display:grid;place-items:center;width:32px;height:32px}
   .tr .nm{min-width:0}
   .tr .nm b{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px}
   .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
@@ -1741,7 +1766,7 @@ class GlassHomeTemperatureCard extends HTMLElement {
         ${rooms.length ? rooms.map((r) => {
           const p = r.temp == null ? 0 : Math.max(4, Math.min(100, ((r.temp - 15) / 12) * 100));
           const warn = r.hum != null && r.hum >= warnAt;
-          return `<div class="tr ${warn ? 'warn' : ''}" data-id="${esc(r.main)}"><span class="ic">${icon(ri(r.name), 19)}</span>
+          return `<div class="tr ${warn ? 'warn' : ''}" data-id="${esc(r.main)}" style="--rc:${roomColor(r.name, r.area, this._config.room_colors)}"><span class="ic">${icon(ri(r.name), 19)}</span>
             <div class="nm"><b>${esc(r.name)}</b><div class="bar"><i style="width:${p}%;background-size:${p ? 10000 / p : 100}% 100%"></i></div></div>
             <div class="v"><b>${r.temp != null ? fmt(r.temp) + '°' : '–'}</b><small>${r.hum != null ? Math.round(r.hum) + ' %' + (warn ? ' ⚠' : '') : '–'}</small></div></div>`;
         }).join('') : `<div class="msg">Noch keine Temperaturfühler. ${admin ? 'Über den Stift oben rechts auswählen.' : ''}</div>`}
@@ -2674,7 +2699,7 @@ class GlassHomeRoomsCard extends HTMLElement {
     const rooms = this._rooms();
     this.shadowRoot.innerHTML = `<style>${GH_STYLE}${ROOMS_STYLE}</style><div class="card p">
       <div class="hd">${icon('home', 18)}${esc(this._config.title || 'Räume')}<small>${rooms.length}</small></div>
-      <div class="ls">${rooms.length ? rooms.map((r) => `<div class="r ${r.on ? 'on' : ''} ${r.warn ? 'warn' : ''}" data-a="${esc(r.id)}">
+      <div class="ls">${rooms.length ? rooms.map((r) => `<div class="r ${r.on ? 'on' : ''} ${r.warn ? 'warn' : ''}" data-a="${esc(r.id)}" style="--rc:${roomColor(r.name, r.id, this._config.room_colors)}">
         <span class="ic">${icon(roomIcon(r.name), 18)}</span><b>${esc(r.name)}</b>
         <span class="t">${r.temp != null ? `${fmt(r.temp)}°` : '–'}${r.hum != null ? `<em>${Math.round(r.hum)} %</em>` : ''}</span>
         <small>${esc(r.sub)}</small></div>`).join('') : '<div class="msg">Keine Räume mit Geräten gefunden.</div>'}</div></div>`;
@@ -2847,6 +2872,11 @@ class GlassHomeGridView extends HTMLElement {
       cell.style.cssText = `--w:${w};--h:${h};--wm:${w === 4 ? 6 : w === 8 ? 12 : w === 9 ? 8 : w === 3 ? 4 : w};--ws:${w <= 2 ? 6 : 12}`;
       if (this._hass) card.hass = this._hass;
       cell.appendChild(card);
+      // HA steckt die Karte in hui-card: Attribut an die Glass-Karte selbst, auch wenn sie später entsteht
+      const flat = (this._config?.icon_colors ?? this._lovelace?.config?.views?.[this._index]?.icon_colors) === false;
+      const mark = () => [card, ...card.querySelectorAll('*')].forEach((el) => { if (el.localName.startsWith('glass-home-')) el.toggleAttribute('gh-flat', flat); });
+      mark();
+      new MutationObserver(mark).observe(card, { childList: true, subtree: true });
       if (edit) {
         const ed = document.createElement('div');
         ed.className = 'ed';
