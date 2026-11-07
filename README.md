@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.7.2: automatisches Dashboard, Navigation, Kopfzeile, Status, Energie, Müll, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.4: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -17,6 +17,10 @@ Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-
 3. `themes/glass_home_graphit.yaml` nach `/config/themes/` und in `configuration.yaml`:
    `frontend: themes: !include_dir_merge_named themes`, dann HA neu starten. Das Theme **nicht** im Profil oder als HA-Standard setzen: Die Glass-Ansichten tragen `theme: glass_home_graphit` selbst, so gilt es nur im Dashboard, für alle Benutzer.
 4. Karte hinzufügen → „Glass Home – Raum“ → Bereich wählen.
+
+## Vorlage (Glass-Raster)
+
+[`vorlagen/dashboard.yaml`](vorlagen/dashboard.yaml) ist das Dashboard der Eltern als allgemeine Vorlage: Start (Navigation, Kopfzeile, Status, Müll, Termine, Temperatur, Kalender), Energie und Kamera. Neues Dashboard anlegen → ⋮ → Rohkonfigurationseditor → Inhalt einfügen, dann `names` und `kiosk` anpassen. Größen und Reihenfolge im Bearbeiten-Modus.
 
 ## Automatisches Dashboard (Strategie)
 

@@ -1,0 +1,64 @@
+# Glass Home – allgemeine Dashboard-Vorlage (Stand Eltern-VM, Glass Home 0.9.4)
+# Einspielen: Dashboard anlegen → öffnen → ⋮ → Rohkonfigurationseditor → alles ersetzen.
+# Anpassen: names.viewer (Begrüßung) und kiosk (Benutzer ohne HA-Kopfzeile/Seitenleiste).
+# Größen danach im Bearbeiten-Modus ziehen. Karten ohne grid_options sind 4×3.
+title: Zuhause
+views:
+  - title: Start
+    path: start
+    icon: mdi:home
+    type: custom:glass-home-grid
+    cards:
+      - type: custom:glass-home-nav
+        grid_options:
+          columns: 12
+          rows: 1
+        kiosk:
+          - viewer
+      - type: custom:glass-home-header
+        grid_options:
+          columns: 12
+          rows: 2
+        names:
+          viewer: Familie Mustermann
+        part: both
+        forecast_days: 7
+      - type: custom:glass-home-status
+        grid_options:
+          columns: 12
+          rows: 1
+      - type: custom:glass-home-waste
+        grid_options:
+          columns: 4
+          rows: 3
+      - type: custom:glass-home-agenda
+        grid_options:
+          columns: 4
+          rows: 3
+      - type: custom:glass-home-temperature
+      - type: custom:glass-home-calendar
+    theme: glass_home_graphit
+  - title: Energie
+    path: energie
+    theme: glass_home_graphit
+    type: custom:glass-home-grid
+    cards:
+      - type: custom:glass-home-nav
+        grid_options:
+          columns: 12
+          rows: 1
+        kiosk:
+          - viewer
+    icon: mdi:lightning-bolt
+  - title: Kamera
+    path: kamera
+    theme: glass_home_graphit
+    type: custom:glass-home-grid
+    cards:
+      - type: custom:glass-home-nav
+        grid_options:
+          columns: 12
+          rows: 1
+        kiosk:
+          - viewer
+    icon: mdi:camera
