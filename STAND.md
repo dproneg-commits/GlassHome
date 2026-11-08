@@ -1,6 +1,6 @@
 # Glass Home – Arbeitsstand
 
-Stand 07.11.2026, Version 0.9.6 (`dist/glass-home.js`, Doku im README.md).
+Stand 07.11.2026, Version 0.9.7 (`dist/glass-home.js`, Doku im README.md).
 Konzept: https://claude.ai/artifact/4R87DLWZevJCfrfkQHH4v9 · Mockups: `../mockups_kunde/` (Design Graphit gewählt).
 
 ## Umgebungen
@@ -17,6 +17,7 @@ Konzept: https://claude.ai/artifact/4R87DLWZevJCfrfkQHH4v9 · Mockups: `../mocku
 - Glass-Raster (12 Spalten) ist Standard-Ansicht, Größen ändert Dominik im Bearbeiten-Modus.
 - Im echten HA: Raumkarte, Kopfzeile, Navigation, Status, Müll, Kalender, Temperatur (Eltern).
 - Strategie (automatisches Dashboard) nur im Mock geprüft.
+- 0.9.7: Leistung unter 1 kW in W (Energiefluss, Akku, Kacheln).
 - 0.9.6: Energiekarten lesen auch eigene Zähler des Wechselrichters (ohne Energie-Dashboard), Mock `test/mock_energie.html?own=1` mit Dominiks Werten vom 8.11. Zuordnung: Flow Solar/Grid/Load Power, Akku Charge/Discharge Power (+ lädt), State of Charge, Rated Capacity, Energy Charged/Discharged Today, Today Energy, Consumption Today, Imported Grid Energy, PV Feed-In Energy, Monthly/Yearly Energy.
 - 0.9.5 Energie-Seite (Energiefluss, Akku, Zeitraum Heute bis Jahr): nur im Mock `test/mock_energie.html` geprüft, noch nicht eingespielt. Entitäten (PV, Netz, Haus, Akku-Leistung und -Ladestand) kommen von Dominik, dann auf der Test-VM in 1280×800 testen. Akku muss im Energie-Dashboard als Batterie eingetragen sein.
 

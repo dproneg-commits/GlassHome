@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.6';
+const GH_VERSION = '0.9.7';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1896,6 +1896,9 @@ const ENERGY_STYLE = `
 
 const kWh = (v) => (v == null ? '–' : `${fmt(v, v >= 100 ? 0 : 1)} kWh`);
 
+// Leistung anzeigen: unter 1 kW in W, sonst kW
+const powerFmt = (v) => { const a = Math.abs(v || 0); return a < 1 ? `${Math.round(a * 1000)} W` : `${fmt(a)} kW`; };
+
 // Leistung in kW aus einem Sensor (W oder kW)
 function powerKw(h, id) {
   const s = id && h.states[id];
@@ -2087,7 +2090,7 @@ class GlassHomeEnergyCard extends HTMLElement {
     const pGrid = live ? powerKw(h, c.grid_power || this._ids.power?.grid) : null;   // + Bezug, − Einspeisung
     let pHome = live ? powerKw(h, c.home_power) : null;
     if (pHome == null && pSolar != null && pGrid != null) pHome = Math.max(0, pSolar + pGrid);
-    const kw = (v) => `${fmt(Math.abs(v))} kW`;
+    const kw = powerFmt;
 
     const tiles = [];
     if (hasSolar) tiles.push({ c: '245,200,76', i: 'sun', v: pSolar != null ? kw(pSolar) : kWh(pv), l: pSolar != null ? `Erzeugung · heute ${kWh(pv)}` : `PV erzeugt ${when}` });
@@ -2265,7 +2268,7 @@ class GlassHomeEnergyFlowCard extends HTMLElement {
   _render() {
     const h = this._hass, c = this._config;
     const n = energyNow(h, c, this._auto || {});
-    const r1 = (v) => (v == null ? '' : Math.round(v * 10) / 10);
+    const r1 = (v) => (v == null ? '' : Math.round(v * 100) / 100);
     const sig = [n.pv, n.grid, n.home, n.bat].map(r1).join('|') + '|' + Math.round(n.soc ?? -1);
     if (sig === this._sig) return;
     this._sig = sig;
@@ -2310,7 +2313,7 @@ class GlassHomeEnergyFlowCard extends HTMLElement {
       const dur = Math.max(1.2, Math.min(8, 4 / f[k]));
       for (let j = 0; j < 3; j++) s += `<circle r="4" fill="rgb(${col[k]})"><animateMotion dur="${dur.toFixed(1)}s" begin="${(-j * dur / 3).toFixed(2)}s" repeatCount="indefinite"><mpath href="#l${i}"/></animateMotion></circle>`;
     });
-    const kw = (v) => `${fmt(Math.abs(v || 0))} kW`;
+    const kw = powerFmt;
     const node = (k, cl, val, lbl, side) => {
       const [x, y] = N[k];
       const lx = side === 'r' ? x + R + 14 : x, anchor = side === 'r' ? 'start' : 'middle', ly = side === 'b' ? y + R + 20 : y - 4;
@@ -2446,7 +2449,7 @@ class GlassHomeBatteryCard extends HTMLElement {
         <div class="ring"><svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="10"/>
           <circle cx="56" cy="56" r="47" fill="none" stroke="#b48cff" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(soc / 100) * C} ${C}" transform="rotate(-90 56 56)"/></svg><b>${Math.round(soc)} %</b></div>
         <div class="tx">
-          ${b != null ? `<div class="big">${fmt(Math.abs(b))} kW <span class="chip">${state}</span></div>` : ''}
+          ${b != null ? `<div class="big">${powerFmt(b)} <span class="chip">${state}</span></div>` : ''}
           ${subs ? `<div class="sub">${esc(subs)}</div>` : ''}
           <div class="bar"><i style="width:${soc}%"></i></div>
           ${t ? `<div class="mini"><span>heute geladen <b>${kWh(t.in)}</b></span><span>entladen <b>${kWh(t.out)}</b></span></div>` : ''}
