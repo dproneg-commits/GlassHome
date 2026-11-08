@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.7';
+const GH_VERSION = '0.9.8';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -8,7 +8,7 @@ const GH_VERSION = '0.9.7';
 // Farbige Icons (Standard). Abschalten: Ansicht mit icon_colors: false (setzt gh-flat an jeder Karte)
 function COLOR_STYLE() { return `
   :host(glass-home-temperature){--gh-hc:#ff8a65}:host(glass-home-agenda){--gh-hc:#aed581}:host(glass-home-rooms){--gh-hc:#b48cff}
-  :host(glass-home-energy){--gh-hc:#ffd54f}:host(glass-home-energy-flow){--gh-hc:#ffd54f}:host(glass-home-battery){--gh-hc:#b48cff}:host(glass-home-waste){--gh-hc:#d7a77b}:host(glass-home-calendar){--gh-hc:#4dd0e1}
+  :host(glass-home-energy){--gh-hc:#ffd54f}:host(glass-home-energy-flow){--gh-hc:#ffd54f}:host(glass-home-battery){--gh-hc:#b48cff}:host(glass-home-energy-mini){--gh-hc:#ffd54f}:host(glass-home-waste){--gh-hc:#d7a77b}:host(glass-home-calendar){--gh-hc:#4dd0e1}
   :host(glass-home-scenes){--gh-hc:#ffb74d}
   :host(glass-home-agenda) .cal .hd{--hc:#4dd0e1}
   :host(:not([gh-flat])) .hd>svg,:host(:not([gh-flat])) .hd .ti svg{color:var(--hc,var(--gh-hc,var(--gh-mute)));padding:4px;margin:-4px 0;box-sizing:content-box;border-radius:9px;
@@ -2473,6 +2473,162 @@ class GlassHomeBatteryEditor extends GlassHomeFormEditor {
 }
 
 /* ------------------------------------------------------------------ */
+/* Energie kompakt (Startseite): Akku-Ring, Leistungen jetzt, Tageskurve */
+/* ------------------------------------------------------------------ */
+const MINI_STYLE = `
+  .mi{height:100%;padding:14px 16px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+  .hd small{margin-left:auto;font-weight:400;font-size:12px;color:var(--gh-mute);white-space:nowrap}.hd small b{color:var(--gh-txt);font-weight:600}
+  .top{display:flex;gap:14px;margin-top:12px;align-items:center}
+  .ring{position:relative;width:112px;height:112px;flex:none}
+  .ring svg{width:100%;height:100%}
+  .ring .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .ring b{font-size:23px;font-weight:600}.ring span{font-size:11.5px;color:var(--gh-mute);margin-top:2px}
+  .rows{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .row{display:flex;align-items:center;gap:9px;padding:6px 11px;border-radius:12px;background:rgba(255,255,255,.06);font-size:13px;color:var(--gh-mute);white-space:nowrap}
+  .row i{width:9px;height:9px;border-radius:50%;flex:none}
+  .row b{margin-left:auto;color:var(--gh-txt);font-size:15px;font-weight:600}
+  .row em{font-style:normal;font-size:11px;color:var(--gh-mute);margin-left:4px;font-weight:400}
+  .lg{display:flex;gap:12px;font-size:12px;color:var(--gh-mute);margin:12px 0 2px;align-items:center;white-space:nowrap}
+  .lg i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .lg small{margin-left:auto;font-size:11.5px}.lg small b{color:var(--gh-txt)}
+  .plot{position:relative;flex:1;min-height:60px}
+  .plot svg{position:absolute;inset:0;width:100%;height:100%}
+  .t{position:absolute;font-size:10.5px;color:var(--gh-mute);white-space:nowrap}
+  .msg{padding:8px 0;font-size:13px;color:var(--gh-mute);line-height:1.45}
+  @container (max-width:360px){.ring{width:92px;height:92px}.ring b{font-size:19px}.row{font-size:12px;padding:5px 9px}.row b{font-size:14px}.lg span:nth-child(3){display:none}}
+`;
+class GlassHomeEnergyMiniCard extends HTMLElement {
+  static getConfigElement() { return document.createElement('glass-home-energy-mini-editor'); }
+  static getStubConfig() { return {}; }
+  setConfig(config) { this._config = { chart: true, ...(config || {}) }; this._sig = ''; this._curve = null; if (this._hass) this._render(); }
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (!this._config) return;
+    if (first) this._load();
+    this._render();
+  }
+  connectedCallback() { this._tick = setInterval(() => this._load(), 5 * 60e3); this.style.containerType = 'inline-size'; }
+  disconnectedCallback() { clearInterval(this._tick); }
+  getCardSize() { return 6; }
+  getGridOptions() { return { columns: 4, rows: 6 }; }
+
+  // Tageskurve: 5-Minuten-Statistik, ohne state_class aus dem Verlauf gemittelt
+  async _load() {
+    const h = this._hass, c = this._config;
+    if (!h?.callWS || !c.chart) return;
+    const ids = { pv: c.solar_power, use: c.home_power, soc: c.battery_soc };
+    const list = Object.values(ids).filter(Boolean);
+    if (!list.length) return;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const N = 288, slot = (t) => Math.floor((t - start) / 3e5);
+    const out = {};
+    try {
+      const res = await h.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), period: '5minute', statistic_ids: list, types: ['mean'], units: { power: 'kW' } }).catch(() => ({}));
+      const missing = list.filter((id) => !(res[id] || []).length);
+      for (const id of list) if (!missing.includes(id)) {
+        const a = new Array(N).fill(null);
+        for (const r of res[id]) { const i = slot(typeof r.start === 'number' ? r.start : Date.parse(r.start)); if (i >= 0 && i < N && r.mean != null) a[i] = r.mean; }
+        out[id] = a;
+      }
+      if (missing.length && h.callApi) {
+        const hist = await h.callApi('GET', `history/period/${start.toISOString()}?filter_entity_id=${missing.join(',')}&minimal_response&no_attributes`);
+        for (const arr of hist || []) {
+          const id = arr[0]?.entity_id;
+          if (!id) continue;
+          const sum = new Array(N).fill(0), cnt = new Array(N).fill(0);
+          const u = (h.states[id]?.attributes.unit_of_measurement || '').toLowerCase();
+          const k = id === c.battery_soc ? 1 : u === 'kw' ? 1 : u === 'mw' ? 1000 : 1 / 1000;
+          for (const r of arr) {
+            const v = parseFloat(r.state), i = slot(Date.parse(r.last_changed || r.lu * 1000));
+            if (!isNaN(v) && i >= 0 && i < N) { sum[i] += v * k; cnt[i]++; }
+          }
+          // Lücken mit dem letzten Wert füllen, bis jetzt
+          const now = slot(Date.now());
+          let last = null;
+          out[id] = sum.map((s, i) => { if (cnt[i]) last = s / cnt[i]; return i <= now ? last : null; });
+        }
+      }
+      this._curve = { pv: out[ids.pv], use: out[ids.use], soc: out[ids.soc] };
+      this._sig = '';
+      this._render();
+    } catch (e) { /* ohne Kurve weiter */ }
+  }
+
+  _render() {
+    const h = this._hass, c = this._config;
+    const n = energyNow(h, c);
+    const today = energyKwh(h, c.solar_energy);
+    const r2 = (v) => (v == null ? '' : Math.round(v * 100));
+    const sig = [n.pv, n.grid, n.home, n.bat].map(r2).join('|') + '|' + Math.round(n.soc ?? -1) + '|' + today + '|' + (this._curve ? 1 : 0);
+    if (sig === this._sig) return;
+    this._sig = sig;
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    const style = `<style>${GH_STYLE}${MINI_STYLE}</style>`;
+    const head = `<div class="hd">${icon('sun', 18)}${esc(c.name || 'Energie')}${today != null ? `<small>heute <b>${kWh(today)}</b> erzeugt</small>` : ''}</div>`;
+    if (n.home == null && n.pv == null && n.soc == null) {
+      this.shadowRoot.innerHTML = `${style}<div class="mi p">${head}<div class="msg">Leistungssensoren im Karten-Editor wählen (PV, Netz, Hausverbrauch, Akku).</div></div>`;
+      return;
+    }
+    const b = n.bat, bState = b == null ? '' : b > 0.02 ? 'lädt' : b < -0.02 ? 'entlädt' : 'bereit';
+    const g = n.grid;
+    const rows = [];
+    if (n.pv != null) rows.push(['#f5c84c', 'Erzeugung', powerFmt(n.pv), '']);
+    if (n.home != null) rows.push(['#4dd0e1', 'Hausverbrauch', powerFmt(n.home), '']);
+    if (g != null) rows.push([g < -0.02 ? '#5fd68e' : g > 0.02 ? '#ff8a65' : '#c9d2dc', g < -0.02 ? 'Einspeisung' : g > 0.02 ? 'Netzbezug' : 'Netz', powerFmt(g), '']);
+    if (b != null) rows.push(['#b48cff', 'Akku', powerFmt(b), bState]);
+    const C = 2 * Math.PI * 47, soc = n.soc != null ? Math.max(0, Math.min(100, n.soc)) : null;
+    const ring = soc != null ? `<div class="ring"><svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="9"/>
+        <circle cx="56" cy="56" r="47" fill="none" stroke="#b48cff" stroke-width="9" stroke-linecap="round" stroke-dasharray="${(soc / 100) * C} ${C}" transform="rotate(-90 56 56)"/></svg>
+        <div class="c"><b>${Math.round(soc)} %</b><span>Akku${bState && bState !== 'bereit' ? ` ${bState}` : ''}</span></div></div>` : '';
+    this.shadowRoot.innerHTML = `${style}<div class="mi p">${head}
+      <div class="top">${ring}<div class="rows">${rows.map(([col, l, v, e]) => `<div class="row"><i style="background:${col}"></i>${l}<b>${v}${e ? `<em>${e}</em>` : ''}</b></div>`).join('')}</div></div>
+      ${c.chart ? this._chart() : ''}</div>`;
+  }
+
+  _chart() {
+    const cv = this._curve;
+    if (!cv || (!cv.pv && !cv.use)) return '';
+    const N = 288, W = 400, H = 160, l = 30, r = cv.soc ? W - 30 : W - 6, top = 8, bot = H - 16;
+    const all = [...(cv.pv || []), ...(cv.use || [])].filter((v) => v != null);
+    const max = Math.max(1, Math.ceil(Math.max(...all) * 1.1));
+    const x = (i) => l + (i / N) * (r - l), y = (v) => bot - (v / max) * (bot - top), y2 = (v) => bot - (v / 100) * (bot - top);
+    const line = (a, fy) => { let d = '', on = false; a.forEach((v, i) => { if (v == null) { on = false; return; } d += `${on ? 'L' : 'M'}${x(i).toFixed(1)} ${fy(v).toFixed(1)}`; on = true; }); return d; };
+    const lastI = (a) => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return i; return -1; };
+    let peak = null;
+    (cv.pv || []).forEach((v, i) => { if (v != null && (!peak || v > peak.v)) peak = { v, i }; });
+    const pt = (i) => { const m = i * 5; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+    const now = (Date.now() - new Date().setHours(0, 0, 0, 0)) / 3e5;
+    const xn = x(now);
+    const step = max > 4 ? 2 : 1;
+    let grid = '', ly = '';
+    for (let v = step; v < max; v += step) { grid += `<line x1="${l}" x2="${r}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/>`; ly += `<span class="t" style="left:0;top:${(y(v) / H) * 100}%;transform:translateY(-50%)">${v} kW</span>`; }
+    const pv = cv.pv ? line(cv.pv, y) : '', li = cv.pv ? lastI(cv.pv) : -1;
+    const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs><linearGradient id="gm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5c84c" stop-opacity=".4"/><stop offset="1" stop-color="#f5c84c" stop-opacity="0"/></linearGradient></defs>
+      ${grid}<line x1="${l}" x2="${r}" y1="${bot}" y2="${bot}" stroke="rgba(255,255,255,.14)"/>
+      ${pv && li >= 0 ? `<path d="${pv} L${x(li)} ${bot} L${x(cv.pv.findIndex((v) => v != null))} ${bot} Z" fill="url(#gm)"/><path d="${pv}" fill="none" stroke="#f5c84c" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : ''}
+      ${cv.use ? `<path d="${line(cv.use, y)}" fill="none" stroke="#4dd0e1" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : ''}
+      ${cv.soc ? `<path d="${line(cv.soc, y2)}" fill="none" stroke="#b48cff" stroke-width="2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>` : ''}
+      <line x1="${xn}" x2="${xn}" y1="${top}" y2="${bot}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+    // Punkte am Kurvenende als HTML, damit sie bei gestrecktem SVG rund bleiben
+    const dots = [[cv.use, '#4dd0e1', y], [cv.pv, '#f5c84c', y]].map(([a, col]) => { const i = a ? lastI(a) : -1; return i < 0 ? '' : `<span style="position:absolute;left:${(x(i) / W) * 100}%;top:${(y(a[i]) / H) * 100}%;width:9px;height:9px;margin:-4.5px;border-radius:50%;background:${col};box-shadow:0 0 0 2px #15171a"></span>`; }).join('');
+    const xl = [0, 6, 12, 18].map((hr) => `<span class="t" style="left:${(x(hr * 12) / W) * 100}%;bottom:0;${hr ? 'transform:translateX(-50%)' : ''}">${String(hr).padStart(2, '0')}:00</span>`).join('');
+    const yr = cv.soc ? [50, 100].map((v) => `<span class="t" style="right:0;top:${(y2(v) / H) * 100}%;transform:translateY(-50%);color:#b48cff">${v} %</span>`).join('') : '';
+    return `<div class="lg">${cv.pv ? '<span><i style="background:#f5c84c"></i>Erzeugung</span>' : ''}${cv.use ? '<span><i style="background:#4dd0e1"></i>Verbrauch</span>' : ''}${cv.soc ? '<span><i style="background:#b48cff"></i>Akku</span>' : ''}
+        ${peak && peak.v > 0.05 ? `<small>Spitze <b>${powerFmt(peak.v)}</b> · ${pt(peak.i)}</small>` : ''}</div>
+      <div class="plot">${svg}${dots}${ly}${yr}${xl}</div>`;
+  }
+}
+class GlassHomeEnergyMiniEditor extends GlassHomeFormEditor {
+  static schema = [...FLOW_SCHEMA, { name: 'solar_energy', selector: { entity: { domain: 'sensor' } } }, { name: 'chart', selector: { boolean: {} } }, { name: 'name', selector: { text: {} } }];
+  static labels = { ...FLOW_LABELS, solar_energy: 'PV heute in kWh (Kopfzeile, optional)', chart: 'Tageskurve zeigen', name: 'Titel (Standard: Energie)' };
+  static defaults = { chart: true };
+}
+
+/* ------------------------------------------------------------------ */
 /* Müllabfuhr (Waste Collection Schedule)                              */
 /* ------------------------------------------------------------------ */
 const WASTE_COLORS = [
@@ -3516,6 +3672,8 @@ if (!customElements.get('glass-home-energy-flow')) customElements.define('glass-
 if (!customElements.get('glass-home-energy-flow-editor')) customElements.define('glass-home-energy-flow-editor', GlassHomeEnergyFlowEditor);
 if (!customElements.get('glass-home-battery')) customElements.define('glass-home-battery', GlassHomeBatteryCard);
 if (!customElements.get('glass-home-battery-editor')) customElements.define('glass-home-battery-editor', GlassHomeBatteryEditor);
+if (!customElements.get('glass-home-energy-mini')) customElements.define('glass-home-energy-mini', GlassHomeEnergyMiniCard);
+if (!customElements.get('glass-home-energy-mini-editor')) customElements.define('glass-home-energy-mini-editor', GlassHomeEnergyMiniEditor);
 if (!customElements.get('glass-home-waste')) customElements.define('glass-home-waste', GlassHomeWasteCard);
 if (!customElements.get('glass-home-waste-editor')) customElements.define('glass-home-waste-editor', GlassHomeWasteEditor);
 if (!customElements.get('glass-home-agenda')) customElements.define('glass-home-agenda', GlassHomeAgendaCard);
@@ -3537,6 +3695,7 @@ for (const card of [
   { type: 'glass-home-status', name: 'Glass Home – Status', description: 'Kacheln für Lichter, Rollos, Steckdosen, Anwesenheit, Temperatur, Fenster und Schlösser. Tippen öffnet die Übersicht; Steckdosen und Temperaturfühler lassen sich dort hinzufügen und entfernen.' },
   { type: 'glass-home-energy', name: 'Glass Home – Energie', description: 'PV-Erzeugung, Verbrauch, Einspeisung, Autarkie und Diagramm aus dem Energie-Dashboard, Zeitraum Heute bis Jahr. Kacheln und Diagramm auch einzeln.' },
   { type: 'glass-home-energy-flow', name: 'Glass Home – Energiefluss', description: 'PV, Netz, Haus und Akku jetzt, mit Fluss-Animation.' },
+  { type: 'glass-home-energy-mini', name: 'Glass Home – Energie kompakt', description: 'Für die Startseite: Akku-Ring, PV, Haus, Netz und Akku jetzt, Tageskurve mit Spitze.' },
   { type: 'glass-home-battery', name: 'Glass Home – Akku', description: 'Ladestand, Leistung, Restzeit und heute geladen/entladen.' },
   { type: 'glass-home-waste', name: 'Glass Home – Müll', description: 'Nächste Abholtermine aus Waste Collection Schedule.' },
   { type: 'glass-home-agenda', name: 'Glass Home – Einkauf & Termine', description: 'Offene Einträge der Einkaufsliste zum Abhaken und Hinzufügen, dazu die nächsten Kalendertermine.' },
