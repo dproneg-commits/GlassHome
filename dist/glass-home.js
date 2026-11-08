@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.8';
+const GH_VERSION = '0.9.9';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -545,6 +545,7 @@ class GlassHomeHeaderCard extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
+    if (this._wxPop) this._wxPop.hass = hass;
     if (!this._config) return;
     if (first || this._wxId !== this._weatherId()) this._resub();
     const sig = this._signature();
@@ -694,9 +695,12 @@ class GlassHomeHeaderCard extends HTMLElement {
     let wxHtml = '';
     if (wx) {
       const a = wx.attributes, unit = a.temperature_unit || '°C';
+      // aktuelle Temperatur bevorzugt von der Wetterstation (gleich wie im Popup)
+      const stId = wxSensors(h, c.weather_sensors || {}).temperature;
+      const temp = stId ? parseFloat(h.states[stId].state) : a.temperature;
       const n = Math.max(0, Math.min(10, Number(c.forecast_days ?? 3)));
       const extra = a.apparent_temperature != null ? ` · gefühlt ${Math.round(a.apparent_temperature)}°` : a.humidity != null ? ` · ${Math.round(a.humidity)} %` : '';
-      const now = `<div class="t">${a.temperature != null ? fmt(a.temperature) : '–'}<sup>${esc(unit)}</sup></div>
+      const now = `<div class="t">${temp != null ? fmt(temp) : '–'}<sup>${esc(unit)}</sup></div>
         <small>${esc(WX_TEXT[wx.state] || wx.state)}${extra}</small>`;
       if (n > 3) {
         // Wochenleiste: heute + folgende Tage, je Symbol, Höchst- und Tiefstwert
@@ -735,11 +739,214 @@ class GlassHomeHeaderCard extends HTMLElement {
       ev.stopPropagation();
       shown[b.dataset.i].run();
     }));
-    this.shadowRoot.querySelector('.wx')?.addEventListener('click', () => this._moreInfo(wxId));
+    this.shadowRoot.querySelector('.wx')?.addEventListener('click', () => this._openWeather(wxId));
   }
 
-  _moreInfo(id) {
-    this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: id }, bubbles: true, composed: true }));
+  // eigenes Popup im Glass-Stil; tap: more-info öffnet wieder die HA-Detailansicht
+  _openWeather(id) {
+    if (this._config.tap === 'more-info') {
+      this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId: id }, bubbles: true, composed: true }));
+      return;
+    }
+    document.querySelector('glass-home-weather')?.close();
+    const pop = document.createElement('glass-home-weather');
+    pop.entity = id;
+    pop.sensors = this._config.weather_sensors || {};
+    pop.daily = this._forecast;
+    pop.onclose = () => { if (this._wxPop === pop) this._wxPop = null; };
+    document.body.appendChild(pop);
+    pop.hass = this._hass;
+    this._wxPop = pop;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Wetter-Popup: Jetzt, 24 Stunden, 7 Tage                            */
+/* ------------------------------------------------------------------ */
+const WX_COLOR = { sun: '#ffd54f', cloudsun: '#ffd54f', cloud: '#c9d2dc', rain: '#64b5f6', snow: '#e3f2fd', moon: '#b0bec5', wind: '#9fd8cf', bolt: '#ffb74d', drop: '#64b5f6', gauge: '#c9d2dc' };
+const wxIcon = (cond, s) => { const n = WX_ICON[cond] || 'cloudsun'; return `<span style="color:${WX_COLOR[n]};display:flex">${icon(n, s)}</span>`; };
+const COMPASS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+
+// Aktuelle Werte von einer Wetterstation (z. B. GeoSphere Austria), sonst aus der Wetter-Entität.
+// weather_sensors: { temperature, humidity, pressure, wind_speed, wind_bearing, precipitation } überschreibt die Suche.
+function wxSensors(hass, own = {}) {
+  const num = (id) => id && hass.states[id] && !isNaN(parseFloat(hass.states[id].state));
+  const name = (id) => String(hass.states[id].attributes.friendly_name || id);
+  const byDev = new Map();
+  for (const id of Object.keys(hass.states)) {
+    if (!id.startsWith('sensor.') || !num(id)) continue;
+    const dev = hass.entities?.[id]?.device_id;
+    if (!dev) continue;
+    if (!byDev.has(dev)) byDev.set(dev, []);
+    byDev.get(dev).push(id);
+  }
+  const dc = (id) => hass.states[id].attributes.device_class;
+  // Station = Gerät mit Wind und Luftdruck
+  const ids = [...byDev.values()].find((l) => l.some((id) => dc(id) === 'wind_speed') && l.some((id) => /pressure/.test(dc(id) || ''))) || [];
+  const pick = (test, avoid, prefer) => {
+    const l = ids.filter(test), good = l.filter((id) => !avoid || !avoid.test(name(id)));
+    return (prefer && good.find((id) => prefer.test(name(id)))) || good[0] || l[0];
+  };
+  const found = {
+    temperature: pick((id) => dc(id) === 'temperature', /dew|tau|average|durchschnitt|mittel|min|max|boden|ground/i),
+    humidity: pick((id) => dc(id) === 'humidity', /average|durchschnitt|mittel/i),
+    pressure: pick((id) => /pressure/.test(dc(id) || ''), null, /sea|meer|reduz/i),
+    wind_speed: pick((id) => dc(id) === 'wind_speed', /top|gust|böe|boe|spitze|max|average|mittel/i),
+    wind_bearing: pick((id) => /bearing|richtung|direction/i.test(name(id)), /top|gust|böe|boe|spitze|max/i),
+    precipitation: pick((id) => /^precipitation/.test(dc(id) || ''), /probab|wahrsch/i),
+  };
+  const out = {};
+  for (const k of Object.keys(found)) { const id = own[k] || found[k]; if (num(id)) out[k] = id; }
+  return out;
+}
+
+const WXPOP_STYLE = `
+  .wxb{overflow:auto;padding:4px 18px 18px;display:flex;flex-direction:column;gap:10px}
+  .wxb .grp{padding:12px 14px;gap:0}
+  .wxb .grp h3{margin:0 0 8px}
+  .wxb .now{flex-direction:row;align-items:center;gap:18px;background:linear-gradient(135deg,rgba(255,200,90,.12),rgba(255,255,255,.04) 60%)}
+  .now .t{font-size:64px;font-weight:200;line-height:1;white-space:nowrap}.now .t sup{font-size:24px;color:var(--gh-mute);vertical-align:top}
+  .now .d{min-width:0}.now .d b{display:block;font-size:17px;font-weight:600}.now .d span{font-size:13px;color:var(--gh-mute)}
+  .chips{margin-left:auto;display:grid;grid-template-columns:repeat(2,auto);gap:6px}
+  .chip{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:12px;background:rgba(255,255,255,.06);font-size:12.5px;color:var(--gh-mute);white-space:nowrap}
+  .chip b{color:var(--gh-txt);font-weight:600;margin-left:auto;padding-left:8px}
+  .hrs{position:relative;height:150px}
+  .hrs svg.c{position:absolute;left:0;top:0;width:100%;height:100%}
+  .hcol{position:absolute;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;font-size:11px;color:var(--gh-mute);transform:translateX(-50%)}
+  .hcol>b{position:absolute;color:var(--gh-txt);font-size:12px;font-weight:600;white-space:nowrap}
+  .hcol>span{margin-top:auto}.hcol em{font-style:normal;margin-top:3px;white-space:nowrap}
+  .day{display:grid;grid-template-columns:70px 30px 54px 36px 1fr 36px;align-items:center;gap:10px;height:38px;font-size:14px;border-top:1px solid rgba(255,255,255,.06)}
+  .day:first-child{border-top:0}
+  .day .n{font-weight:600}.day .pp{font-size:12px;display:flex;align-items:center;gap:3px;color:#64b5f6}
+  .day .lo{color:var(--gh-mute);text-align:right}.day .hi{font-weight:600}
+  .bar{position:relative;height:6px;border-radius:3px;background:rgba(255,255,255,.08)}
+  .bar i{position:absolute;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,#64b5f6,#ffd54f 60%,#ffab6b)}
+  .bar u{position:absolute;top:-2px;width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid #22262b;transform:translateX(-50%)}
+  @media (max-width:600px){
+    .now{flex-wrap:wrap;gap:12px}.now .t{font-size:52px}.chips{margin-left:0;width:100%}
+    .day{grid-template-columns:44px 26px 48px 30px 1fr 30px;gap:8px}
+  }
+`;
+
+class GlassHomeWeatherPopup extends HTMLElement {
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (first) this._sub();
+    const s = this._sensors = wxSensors(hass, this.sensors);
+    const sig = [this.entity, ...Object.values(s)].map((id) => hass.states[id]?.state + '|' + hass.states[id]?.last_updated).join(';');
+    if (sig === this._sig) return;
+    this._sig = sig;
+    this._render();
+  }
+
+  connectedCallback() {
+    this._esc = (ev) => ev.key === 'Escape' && this.close();
+    window.addEventListener('keydown', this._esc);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('keydown', this._esc);
+    for (const u of this._unsubs || []) Promise.resolve(u).then((f) => typeof f === 'function' && f()).catch(() => {});
+  }
+
+  close() { if (this.isConnected) { this.remove(); this.onclose?.(); } }
+
+  _sub() {
+    const c = this._hass.connection;
+    this._fc = { daily: this.daily || null, hourly: null };
+    if (!c || !this.entity) return;
+    this._unsubs = ['daily', 'hourly'].map((t) => c.subscribeMessage((msg) => {
+      this._fc[t] = msg.forecast || [];
+      this._render();
+    }, { type: 'weather/subscribe_forecast', forecast_type: t, entity_id: this.entity }).catch(() => null));
+  }
+
+  _val(k, attr) {
+    const h = this._hass, id = this._sensors?.[k];
+    if (id) return { v: parseFloat(h.states[id].state), u: h.states[id].attributes.unit_of_measurement || '' };
+    const a = h.states[this.entity]?.attributes || {};
+    if (a[attr] == null) return null;
+    const units = { temperature: a.temperature_unit, wind_speed: a.wind_speed_unit, pressure: a.pressure_unit, precipitation: a.precipitation_unit, humidity: '%', wind_bearing: '°' };
+    return { v: Number(a[attr]), u: units[k] || '' };
+  }
+
+  _render() {
+    if (!this._hass) return;
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.innerHTML = `<style>${GH_STYLE}${POPUP_STYLE}${WXPOP_STYLE}</style><div class="bg"></div>
+        <div class="sheet p"><div class="top"><div><h2>Wetter</h2><small class="sum"></small></div><button class="x" aria-label="Schließen">✕</button></div>
+        <div class="wxb"></div></div>`;
+      this.shadowRoot.querySelector('.bg').addEventListener('click', () => this.close());
+      this.shadowRoot.querySelector('.x').addEventListener('click', () => this.close());
+    }
+    const h = this._hass, wx = h.states[this.entity], a = wx?.attributes || {};
+    const daily = (this._fc?.daily || []).filter((f) => dayStart(new Date(f.datetime)) >= dayStart(new Date())).slice(0, 7);
+    const hourly = (this._fc?.hourly || []).filter((f) => new Date(f.datetime) > Date.now() - 36e5).slice(0, 24);
+    const cond = WX_TEXT[wx?.state] ? wx.state : hourly[0]?.condition || daily[0]?.condition;
+    const tmp = this._val('temperature', 'temperature');
+    const t = tmp ? Math.round(tmp.v) : null, unit = tmp?.u || a.temperature_unit || '°C';
+    const st = this._sensors.temperature && h.states[this._sensors.temperature];
+    const upd = st ? new Date(st.last_updated) : wx ? new Date(wx.last_updated) : null;
+    const where = (st && h.devices?.[h.entities?.[this._sensors.temperature]?.device_id]?.name) || a.friendly_name || '';
+    this.shadowRoot.querySelector('.sum').textContent = [where, upd ? 'aktualisiert ' + hhmm(upd) : ''].filter(Boolean).join(' · ');
+
+    // Jetzt
+    const sub = [a.apparent_temperature != null ? `gefühlt ${Math.round(a.apparent_temperature)}°` : '',
+      daily[0] ? `heute ${Math.round(daily[0].temperature)}°${daily[0].templow != null ? ` / ${Math.round(daily[0].templow)}°` : ''}` : ''].filter(Boolean).join(' · ');
+    const chip = (ic, label, val) => val ? `<span class="chip"><span style="color:${WX_COLOR[ic]};display:flex">${icon(ic, 15)}</span>${label}<b>${val}</b></span>` : '';
+    const ws = this._val('wind_speed', 'wind_speed'), wb = this._val('wind_bearing', 'wind_bearing');
+    const hu = this._val('humidity', 'humidity'), pr = this._val('pressure', 'pressure'), rn = this._val('precipitation', 'precipitation');
+    const dir = wb && !isNaN(wb.v) ? ' ' + COMPASS[Math.round(wb.v / 45) % 8] : '';
+    const chips = [
+      chip('wind', 'Wind', ws && `${fmt(ws.v, ws.v < 10 ? 1 : 0)} ${esc(ws.u)}${dir}`),
+      chip('drop', 'Feuchte', hu && `${Math.round(hu.v)} %`),
+      chip('rain', 'Regen', rn && `${fmt(rn.v, 1)} ${esc(rn.u || 'mm')}`),
+      chip('cloud', 'Druck', pr && `${Math.round(pr.v)} ${esc(pr.u || 'hPa')}`),
+    ].join('');
+    const nowHtml = `<div class="grp now">${wxIcon(cond, 64)}<div class="t">${tmp ? fmt(tmp.v) : '–'}<sup>${esc(unit)}</sup></div>
+      <div class="d"><b>${esc(WX_TEXT[cond] || cond || '')}</b><span>${sub}</span></div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
+
+    // 24 Stunden: Kurve, alle 3 Stunden Wert, Symbol und Regenwahrscheinlichkeit
+    let hrsHtml = '';
+    if (hourly.length > 2) {
+      hrsHtml = `<div class="grp"><h3>Nächste ${hourly.length} Stunden</h3><div class="hrs"></div></div>`;
+    }
+    const days = daily.length ? (() => {
+      const lo = Math.min(...daily.map((f) => f.templow ?? f.temperature)), hi = Math.max(...daily.map((f) => f.temperature), t ?? -99);
+      const pos = (v) => ((v - lo) / Math.max(1, hi - lo)) * 100;
+      const today = new Date().toDateString();
+      return `<div class="grp"><h3>${daily.length} Tage</h3><div class="days">${daily.map((f) => {
+        const d = new Date(f.datetime), isToday = d.toDateString() === today, low = f.templow ?? f.temperature;
+        const p = f.precipitation_probability;
+        return `<div class="day"><span class="n">${isToday ? 'Heute' : WEEKDAY[d.getDay()]}</span>${wxIcon(f.condition, 22)}
+          <span class="pp">${p ? icon('drop', 12) + Math.round(p) + ' %' : ''}</span><span class="lo">${Math.round(low)}°</span>
+          <span class="bar"><i style="left:${pos(low)}%;right:${100 - pos(f.temperature)}%"></i>${isToday && t != null ? `<u style="left:${Math.min(100, Math.max(0, pos(t)))}%"></u>` : ''}</span>
+          <span class="hi">${Math.round(f.temperature)}°</span></div>`;
+      }).join('')}</div></div>`;
+    })() : '';
+
+    const body = this.shadowRoot.querySelector('.wxb');
+    body.innerHTML = nowHtml + hrsHtml + days;
+    const box = body.querySelector('.hrs');
+    if (box) this._drawHours(box, hourly);
+  }
+
+  _drawHours(box, hr) {
+    const W = box.clientWidth || 690, H = 150, tp = 22, bot = 78, n = hr.length;
+    const T = hr.map((f) => f.temperature), mn = Math.min(...T), mx = Math.max(...T);
+    const x = (i) => 14 + (i * (W - 28)) / (n - 1), y = (v) => tp + ((mx - v) / Math.max(1, mx - mn)) * (H - tp - bot);
+    const pts = T.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const marks = hr.map((f, i) => (i % 3 ? '' : i));
+    box.innerHTML = `<svg class="c" viewBox="0 0 ${W} ${H}"><defs><linearGradient id="wg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffd54f" stop-opacity=".25"/><stop offset="1" stop-color="#ffd54f" stop-opacity="0"/></linearGradient></defs>
+      <polygon points="${x(0)},${H - bot + 10} ${pts} ${x(n - 1)},${H - bot + 10}" fill="url(#wg)"/><polyline points="${pts}" fill="none" stroke="#ffd54f" stroke-width="2.2" stroke-linejoin="round"/>
+      ${marks.filter((i) => i !== '').map((i) => `<circle cx="${x(i)}" cy="${y(T[i])}" r="3" fill="#ffd54f"/>`).join('')}</svg>
+      ${marks.filter((i) => i !== '').map((i) => {
+        const f = hr[i], p = f.precipitation_probability;
+        return `<div class="hcol" style="left:${x(i)}px"><b style="top:${y(T[i]) - 20}px">${Math.round(T[i])}°</b>${wxIcon(f.condition, 20)}
+          <em>${p ? Math.round(p) + ' %' : '&nbsp;'}</em><em>${i ? hhmm(new Date(f.datetime)) : 'Jetzt'}</em></div>`;
+      }).join('')}`;
   }
 }
 
@@ -3685,6 +3892,7 @@ if (!customElements.get('glass-home-temperature-editor')) customElements.define(
 if (!customElements.get('glass-home-calendar')) customElements.define('glass-home-calendar', GlassHomeCalendarCard);
 if (!customElements.get('glass-home-calendar-editor')) customElements.define('glass-home-calendar-editor', GlassHomeCalendarEditor);
 if (!customElements.get('glass-home-week')) customElements.define('glass-home-week', GlassHomeWeekPopup);
+if (!customElements.get('glass-home-weather')) customElements.define('glass-home-weather', GlassHomeWeatherPopup);
 if (!customElements.get('glass-home-grid')) customElements.define('glass-home-grid', GlassHomeGridView);
 if (!customElements.get('ll-strategy-dashboard-glass-home')) customElements.define('ll-strategy-dashboard-glass-home', GlassHomeDashboardStrategy);
 
