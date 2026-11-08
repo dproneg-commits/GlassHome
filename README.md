@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.8: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Energie kompakt, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.9: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Energie kompakt, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -291,11 +291,19 @@ forecast_days: 7        # Vorschau, Standard 3; ab 4 als Wochenleiste mit Symbol
 show_weather: true
 show_alerts: true
 light_hours: 2          # Hinweis, wenn ein Licht länger an ist
+# tap: more-info        # optional: statt des Glass-Popups die HA-Detailansicht
+# weather_sensors:      # optional, sonst automatisch die Wetterstation (Gerät mit Wind und Luftdruck, z. B. GeoSphere)
+#   temperature: sensor.leibnitz_temperature
+#   wind_speed: sensor.leibnitz_wind_speed
+#   wind_bearing: sensor.leibnitz_wind_bearing
+#   humidity: sensor.leibnitz_humidity
+#   precipitation: sensor.leibnitz_precipitation
+#   pressure: sensor.leibnitz_pressure_at_sea_level
 ```
 
 - Begrüßung nach Tageszeit, darunter Kurzstatus (Lichter, Innentemperatur, Rollos) aus allen Geräten mit Bereich.
 - Hinweise mit Aktion: offene Fenster/Türen (Anzeigen), lange brennendes Licht (Ausschalten), offenes Schloss (Zusperren). Höchstens 4, Rest als „+N weitere“.
-- Wetter mit 3-Tage-Vorschau (oder Wochenleiste mit `forecast_days: 7`), Tippen öffnet die Detailansicht. Am Handy untereinander.
+- Wetter mit 3-Tage-Vorschau (oder Wochenleiste mit `forecast_days: 7`), Tippen öffnet das Wetter-Popup: jetzt (Temperatur, Wind mit Richtung, Feuchte, Regen, Luftdruck auf Meereshöhe), Kurve der nächsten 24 Stunden und 7 Tage mit Tief-/Hochbalken. Aktuelle Werte kommen von der Wetterstation, wenn es eine gibt, sonst aus der Wetter-Entität. Am Handy untereinander.
 
 ## Raumkarte
 
