@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.7: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.8: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Energie kompakt, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -199,6 +199,20 @@ invert_battery: false
 ```
 
 Ladestand als Ring, Leistung mit „lädt/entlädt“, Restzeit bis voll oder leer, heute geladen und entladen (aus der Batterie im Energie-Dashboard).
+
+### Energie kompakt (Startseite)
+
+```yaml
+type: custom:glass-home-energy-mini    # 4 × 6 (ohne Kurve: chart: false, 4 × 3)
+solar_power: sensor.pv_leistung
+grid_power: sensor.netz_leistung       # + Bezug / − Einspeisung
+home_power: sensor.haus_leistung
+battery_power: sensor.akku_leistung    # + lädt / − entlädt
+battery_soc: sensor.akku_ladestand
+solar_energy: sensor.today_energy      # optional, „heute x kWh erzeugt“
+```
+
+Akku-Ladestand als Ring, Erzeugung, Hausverbrauch, Netz und Akku jetzt (unter 1 kW in W), darunter die Tageskurve in 5-Minuten-Schritten mit PV-Spitze und Akku-Ladestand. Die Kurve kommt aus der Statistik (`state_class: measurement`), sonst aus dem Verlauf.
 
 ## Müll
 

@@ -36,12 +36,16 @@ const stats = (msg) => {
   const rows = [];
   for (let t = new Date(start); t < end;) {
     rows.push(new Date(t));
-    if (msg.period === 'hour') t.setHours(t.getHours() + 1); else if (msg.period === 'day') t.setDate(t.getDate() + 1); else t.setMonth(t.getMonth() + 1);
+    if (msg.period === '5minute') t.setMinutes(t.getMinutes() + 5); else if (msg.period === 'hour') t.setHours(t.getHours() + 1); else if (msg.period === 'day') t.setDate(t.getDate() + 1); else t.setMonth(t.getMonth() + 1);
   }
   for (const id of msg.statistic_ids) out[id] = rows.map((t) => {
     const h = t.getHours(), m = t.getMonth();
     const season = [0.15, 0.25, 0.5, 0.7, 0.9, 1, 1, 0.9, 0.65, 0.4, 0.2, 0.12][m];
     let v;
+    if (msg.period === '5minute') { const hh = h + t.getMinutes() / 60;
+      return { start: +t, mean: id === 'sensor.akku_ladestand' ? (hh < 7.5 ? 38 - hh * 2.6 : hh < 15 ? 18 + (hh - 7.5) * 9.6 : hh < 16.5 ? 90 : Math.max(30, 90 - (hh - 16.5) * 14))
+        : id === 'sensor.pv_leistung' ? Math.max(0, Math.sin((hh - 7.6) / 9 * Math.PI)) * 3.3 * (0.85 + r() * 0.25)
+        : 0.35 + r() * 0.15 + (hh > 11.5 && hh < 12.2 ? 2.2 : 0) + (hh > 17 ? 0.4 : 0) + (r() > 0.96 ? r() * 1.6 : 0) }; }
     if (msg.types.includes('mean')) return { start: +t, mean: [38, 35, 32, 29, 27, 24, 21, 18, 20, 28, 40, 52, 63, 72, 80, 86, 88, 85, 74, 62, 52, 46, 42, 40][h] };
     if (msg.period === 'hour') {
       const pv = Math.max(0, Math.sin((h - 7.3) / 9.4 * Math.PI)) * 3.1;
@@ -68,13 +72,16 @@ const hass = {
 const e = q.get('empty') === '1';
 const OWN = { solar_energy: 'sensor.pv_energie', home_energy: 'sensor.verbrauch_heute', grid_import_energy: 'sensor.bezug', grid_export_energy: 'sensor.einspeisung',
   battery_charge_energy: 'sensor.akku_rein', battery_discharge_energy: 'sensor.akku_raus', solar_energy_month: 'sensor.pv_monat', solar_energy_year: 'sensor.pv_jahr' };
-const view = { title: 'Energie', path: 'energie', type: 'custom:glass-home-grid', theme: 'glass_home_graphit', cards: [
+const MINI = { type: 'custom:glass-home-energy-mini', grid_options: { columns: 4, rows: 6 }, solar_power: 'sensor.pv_leistung', grid_power: 'sensor.netz_leistung', home_power: 'sensor.haus_leistung', battery_power: 'sensor.akku_leistung', battery_soc: 'sensor.akku_ladestand', ...(own ? { solar_energy: 'sensor.pv_energie' } : {}) };
+const view0 = { title: 'Energie', path: 'energie', type: 'custom:glass-home-grid', theme: 'glass_home_graphit', cards: [
   { type: 'custom:glass-home-nav', grid_options: { columns: 12, rows: 1 } },
   { type: 'custom:glass-home-energy-flow', grid_options: { columns: 7, rows: 5 }, ...(e ? {} : { solar_power: 'sensor.pv_leistung', grid_power: 'sensor.netz_leistung', home_power: 'sensor.haus_leistung', ...(bat ? { battery_power: 'sensor.akku_leistung', battery_soc: 'sensor.akku_ladestand' } : {}) }) },
   ...(bat ? [{ type: 'custom:glass-home-battery', grid_options: { columns: 5, rows: 3 }, ...(own ? { capacity_entity: 'sensor.akku_kapazitaet', battery_charge_energy: 'sensor.akku_rein', battery_discharge_energy: 'sensor.akku_raus' } : { capacity: 10 }), ...(e ? {} : { battery_power: 'sensor.akku_leistung', battery_soc: 'sensor.akku_ladestand' }) }] : []),
   { type: 'custom:glass-home-energy', part: 'tiles', ...(own ? OWN : {}), grid_options: { columns: 5, rows: bat ? 2 : 5 } },
   { type: 'custom:glass-home-energy', part: 'chart', ...(own ? OWN : {}), ...(e ? {} : { battery_soc: 'sensor.akku_ladestand' }), grid_options: { columns: 12, rows: 4 } },
 ] };
+// ?mini=1: Startseiten-Karte neben Platzhaltern
+const view = q.get('mini') === '1' ? { ...view0, cards: [view0.cards[0], MINI, { ...MINI, grid_options: { columns: 4, rows: 3 }, chart: false }, { ...MINI, grid_options: { columns: 4, rows: 6 }, name: 'Ohne Akku', battery_power: undefined, battery_soc: undefined }] } : view0;
 const conf = { title: 'Zuhause', views: [{ title: 'Start', path: 'start', icon: 'mdi:home', cards: [] }, { ...view, icon: 'mdi:lightning-bolt' }, { title: 'Kamera', path: 'kamera', icon: 'mdi:camera', cards: [] }] };
 const lovelace = { config: conf, editMode: false };
 const cards = view.cards.map((cc) => { const el = document.createElement(cc.type.slice(7)); el.setConfig(cc); el.config = cc; return el; });
