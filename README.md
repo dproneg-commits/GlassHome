@@ -1,6 +1,6 @@
 # Glass Home
 
-Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.5: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
+Dashboard-Paket im Glas-Stil für Kundeninstallationen. Stand 0.9.6: Glass-Raster, automatisches Dashboard, Navigation, Kopfzeile mit Wetter, Status, Temperatur, Energie mit Zeitraum, Energiefluss, Akku, Müll, Kalender, Einkauf & Termine, Szenen, Raumkarte.
 
 Anleitung für Kunden (zum Weitergeben): [docs/KUNDEN-ANLEITUNG.md](docs/KUNDEN-ANLEITUNG.md).
 
@@ -154,6 +154,18 @@ home_power: sensor.haus_leistung   # optional, sonst PV + Netz
 ```
 
 - kWh-Werte kommen aus dem HA-Energie-Dashboard (Solar, Netzbezug, Einspeisung, Batterie). Ohne Energie-Dashboard zeigt die Karte einen Hinweis.
+- Ohne Energie-Dashboard (oder statt dessen): eigene Tageszähler des Wechselrichters eintragen. Heute kommt dann direkt aus den Zählern, Gestern bis Jahr aus dem HA-Verlauf dieser Zähler (braucht `state_class`, sonst bleibt das Diagramm leer):
+
+```yaml
+solar_energy: sensor.today_energy              # PV heute
+home_energy: sensor.consumption_today          # Hausverbrauch heute
+grid_import_energy: sensor.imported_grid_energy
+grid_export_energy: sensor.pv_feed_in_energy
+battery_charge_energy: sensor.energy_charged_today       # optional
+battery_discharge_energy: sensor.energy_discharged_today # optional
+solar_energy_month: sensor.monthly_energy      # optional, PV-Kachel bei Monat
+solar_energy_year: sensor.yearly_energy        # optional, PV-Kachel bei Jahr
+```
 - Der gewählte Zeitraum gilt für alle Energiekarten der Seite, so können Kacheln und Diagramm getrennt stehen.
 - Heute und Gestern: Stundenkurve mit PV, Hausverbrauch, Netzbezug (Balken) und Akku-Ladestand. Woche und Monat: Balken je Tag, Jahr: je Monat.
 - Hausverbrauch = Bezug + PV + Akku entladen − Einspeisung − Akku geladen. Autarkie = Anteil des Verbrauchs, der nicht aus dem Netz kam.
@@ -180,6 +192,9 @@ type: custom:glass-home-battery
 battery_soc: sensor.akku_ladestand
 battery_power: sensor.akku_leistung  # + lädt / − entlädt
 capacity: 10                         # kWh, für Restzeit und „x von y kWh“
+capacity_entity: sensor.rated_capacity          # statt capacity, Größe aus Sensor
+battery_charge_energy: sensor.energy_charged_today       # optional, sonst Energie-Dashboard
+battery_discharge_energy: sensor.energy_discharged_today
 invert_battery: false
 ```
 

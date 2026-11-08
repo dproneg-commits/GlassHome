@@ -1,5 +1,5 @@
 // Glass Home – Dashboard-Paket im Glas-Stil für Kundeninstallationen
-const GH_VERSION = '0.9.5';
+const GH_VERSION = '0.9.6';
 
 /* ------------------------------------------------------------------ */
 /* Gemeinsamer Stil (Graphit). Jede Farbe kann über das Theme          */
@@ -1923,6 +1923,23 @@ function energyIds(prefs) {
   };
 }
 
+// eigene Energiezähler statt Energie-Dashboard (z. B. Tageszähler des Wechselrichters)
+const EN_OWN = ['solar_energy', 'home_energy', 'grid_import_energy', 'grid_export_energy', 'battery_charge_energy', 'battery_discharge_energy'];
+function ownEnergyIds(c) {
+  if (!EN_OWN.some((k) => c[k])) return null;
+  const l = (k) => (c[k] ? [c[k]] : []);
+  return { own: true, solar: l('solar_energy'), home: l('home_energy'), from: l('grid_import_energy'), to: l('grid_export_energy'),
+    batIn: l('battery_charge_energy'), batOut: l('battery_discharge_energy'), power: {} };
+}
+// Zählerstand in kWh (Wh und MWh werden umgerechnet)
+function energyKwh(h, id) {
+  const s = id && h.states[id];
+  const v = s ? parseFloat(s.state) : NaN;
+  if (isNaN(v)) return null;
+  const u = (s.attributes.unit_of_measurement || 'kWh').toLowerCase();
+  return u === 'wh' ? v / 1000 : u === 'mwh' ? v * 1000 : v;
+}
+
 // Zeiträume: Heute/Gestern stündlich, Woche/Monat täglich, Jahr monatlich
 const EN_PERIODS = [['day', 'Heute'], ['yesterday', 'Gestern'], ['week', 'Woche'], ['month', 'Monat'], ['year', 'Jahr']];
 const EN_MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -1962,6 +1979,8 @@ class GlassHomeEnergyCard extends HTMLElement {
     this._config = { chart: true, periods: true, part: 'both', ...(config || {}) };
     this._period = this._config.periods ? ghEnergyPeriod : 'day';
     this._sig = '';
+    this._ids = null;
+    this._data = {};
     if (this._hass) this._render();
   }
 
@@ -1971,7 +1990,7 @@ class GlassHomeEnergyCard extends HTMLElement {
     if (!this._config) return;
     if (first) this._load();
     const c = this._config;
-    const sig = [c.solar_power, c.grid_power, c.home_power].map((id) => id && hass.states[id]?.state).join('|');
+    const sig = [c.solar_power, c.grid_power, c.home_power, ...EN_OWN.map((k) => c[k]), c.solar_energy_month, c.solar_energy_year].map((id) => id && hass.states[id]?.state).join('|');
     if (sig === this._sig) return;
     this._sig = sig;
     this._render();
@@ -1998,8 +2017,8 @@ class GlassHomeEnergyCard extends HTMLElement {
     if (old && !old.error && !(force && p !== 'yesterday')) return;
     this._loading = p;
     try {
-      const ids = this._ids || (this._ids = energyIds(await energyPrefs(h)));
-      const all = [...ids.solar, ...ids.from, ...ids.to, ...ids.batIn, ...ids.batOut];
+      const ids = this._ids || (this._ids = ownEnergyIds(this._config) || energyIds(await energyPrefs(h)));
+      const all = [...ids.solar, ...ids.from, ...ids.to, ...ids.batIn, ...ids.batOut, ...(ids.home || [])];
       if (!all.length) { this._data[p] = { empty: true }; return; }
       const r = energyRange(p), soc = this._config.battery_soc;
       const msg = { type: 'recorder/statistics_during_period', start_time: r.start.toISOString(), period: r.period, statistic_ids: all, types: ['change'], units: { energy: 'kWh' } };
@@ -2019,7 +2038,8 @@ class GlassHomeEnergyCard extends HTMLElement {
       };
       const d = { r, solar: bins(ids.solar), from: bins(ids.from), to: bins(ids.to), batIn: bins(ids.batIn), batOut: bins(ids.batOut) };
       d.soc = soc ? bins([soc], 'mean') : null;
-      d.use = d.from.map((v, i) => ([v, d.solar[i], d.batOut[i]].every((x) => x == null) ? null
+      // Hausverbrauch: eigener Zähler, sonst Bezug + PV + Akku entladen − Einspeisung − Akku geladen
+      d.use = ids.home?.length ? bins(ids.home) : d.from.map((v, i) => ([v, d.solar[i], d.batOut[i]].every((x) => x == null) ? null
         : Math.max(0, (v || 0) + (d.solar[i] || 0) + (d.batOut[i] || 0) - (d.to[i] || 0) - (d.batIn[i] || 0))));
       this._data[p] = d;
     } catch (e) {
@@ -2051,7 +2071,13 @@ class GlassHomeEnergyCard extends HTMLElement {
 
     const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
     const hasSolar = this._ids.solar.length > 0;
-    const pv = sum(st.solar), from = sum(st.from), to = sum(st.to), use = sum(st.use);
+    // Heute direkt aus den Tageszählern, PV für Monat und Jahr aus eigenen Zählern, sonst aus der Statistik
+    const day = p === 'day', kv = (id) => energyKwh(h, id);
+    const pick = (...v) => v.find((x) => x != null);
+    const pv = pick(day ? kv(c.solar_energy) : null, p === 'month' ? kv(c.solar_energy_month) : null, p === 'year' ? kv(c.solar_energy_year) : null, sum(st.solar));
+    const from = pick(day ? kv(c.grid_import_energy) : null, sum(st.from));
+    const to = pick(day ? kv(c.grid_export_energy) : null, sum(st.to));
+    const use = pick(day ? kv(c.home_energy) : null, sum(st.use));
     const autark = use > 0 ? Math.round(Math.max(0, Math.min(1, 1 - from / use)) * 100) : null;
     const when = energyWhen(p);
 
@@ -2159,13 +2185,29 @@ class GlassHomeEnergyEditor extends GlassHomeFormEditor {
     { name: 'part', selector: { select: { mode: 'dropdown', options: [{ value: 'both', label: 'Kacheln und Diagramm' }, { value: 'tiles', label: 'Nur Kacheln' }, { value: 'chart', label: 'Nur Diagramm' }] } } },
     { name: 'periods', selector: { boolean: {} } },
     { name: 'chart', selector: { boolean: {} } },
-    { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
+    { name: 'battery_soc', selector: { entity: { domain: 'sensor' } } },
+    { name: 'solar_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'home_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'grid_import_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'grid_export_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'battery_charge_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'battery_discharge_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'solar_energy_month', selector: { entity: { domain: 'sensor' } } },
+    { name: 'solar_energy_year', selector: { entity: { domain: 'sensor' } } },
     { name: 'solar_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
     { name: 'grid_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
     { name: 'home_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
   ];
   static labels = {
     part: 'Inhalt',
+    solar_energy: 'Eigene Zähler statt Energie-Dashboard: PV heute (kWh)',
+    home_energy: 'Hausverbrauch heute (kWh)',
+    grid_import_energy: 'Netzbezug heute (kWh)',
+    grid_export_energy: 'Einspeisung heute (kWh)',
+    battery_charge_energy: 'Akku geladen heute (kWh, optional)',
+    battery_discharge_energy: 'Akku entladen heute (kWh, optional)',
+    solar_energy_month: 'PV diesen Monat (kWh, optional)',
+    solar_energy_year: 'PV dieses Jahr (kWh, optional)',
     periods: 'Zeitraum wählbar (Heute, Gestern, Woche, Monat, Jahr)',
     chart: 'Diagramm zeigen',
     battery_soc: 'Akku-Ladestand für die Kurve (optional)',
@@ -2279,7 +2321,7 @@ class GlassHomeEnergyFlowCard extends HTMLElement {
     };
     if (hasPv) s += node('solar', FLOW_C.solar, kw(n.pv), 'PV-Erzeugung', 'r');
     const g = n.grid || 0;
-    s += node('grid', g < -0.02 ? FLOW_C.feed : FLOW_C.buy, kw(g), g < -0.02 ? 'Einspeisung' : 'Netzbezug', 'b');
+    s += node('grid', g < -0.02 ? FLOW_C.feed : g > 0.02 ? FLOW_C.buy : '201,210,220', kw(g), g < -0.02 ? 'Einspeisung' : g > 0.02 ? 'Netzbezug' : 'Netz', 'b');
     s += node('home', FLOW_C.home, kw(n.home), 'Hausverbrauch', 'b');
     if (hasBat) {
       const b = n.bat || 0, st = b > 0.02 ? `lädt · ${kw(b)}` : b < -0.02 ? `entlädt · ${kw(b)}` : 'Akku bereit';
@@ -2296,7 +2338,7 @@ const FLOW_SCHEMA = [
   { name: 'grid_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
   { name: 'home_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
   { name: 'battery_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
-  { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
+  { name: 'battery_soc', selector: { entity: { domain: 'sensor' } } },
   { name: 'invert_battery', selector: { boolean: {} } },
   { name: 'invert_grid', selector: { boolean: {} } },
 ];
@@ -2373,13 +2415,15 @@ class GlassHomeBatteryCard extends HTMLElement {
   _render() {
     const h = this._hass, c = this._config;
     const n = energyNow(h, { battery_power: c.battery_power, battery_soc: c.battery_soc, invert_battery: c.invert_battery });
-    const t = this._today;
-    const sig = [n.soc, n.bat == null ? '' : Math.round(n.bat * 100), t?.in, t?.out].join('|');
+    // heute geladen/entladen: eigene Zähler, sonst Energie-Dashboard
+    const tin = energyKwh(h, c.battery_charge_energy), tout = energyKwh(h, c.battery_discharge_energy);
+    const t = tin != null || tout != null ? { in: tin, out: tout } : this._today;
+    const sig = [n.soc, n.bat == null ? '' : Math.round(n.bat * 100), t?.in, t?.out, c.capacity_entity && h.states[c.capacity_entity]?.state].join('|');
     if (sig === this._sig) return;
     this._sig = sig;
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
     const style = `<style>${GH_STYLE}${BAT_STYLE}</style>`;
-    const cap = Number(c.capacity) || null;
+    const cap = Number(c.capacity) || energyKwh(h, c.capacity_entity) || null;
     const bIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${FLOW_ICON.bat}</svg>`;
     const head = `<div class="hd">${bIcon}${esc(c.name || 'Akku')}<small>${cap ? `${fmt(cap, cap % 1 ? 1 : 0)} kWh Speicher` : ''}</small></div>`;
     if (n.soc == null) {
@@ -2412,13 +2456,16 @@ class GlassHomeBatteryCard extends HTMLElement {
 }
 class GlassHomeBatteryEditor extends GlassHomeFormEditor {
   static schema = [
-    { name: 'battery_soc', selector: { entity: { domain: 'sensor', } } },
+    { name: 'battery_soc', selector: { entity: { domain: 'sensor' } } },
     { name: 'battery_power', selector: { entity: { domain: 'sensor', device_class: 'power' } } },
     { name: 'capacity', selector: { number: { min: 0, max: 200, step: 0.1, mode: 'box', unit_of_measurement: 'kWh' } } },
+    { name: 'capacity_entity', selector: { entity: { domain: 'sensor' } } },
+    { name: 'battery_charge_energy', selector: { entity: { domain: 'sensor' } } },
+    { name: 'battery_discharge_energy', selector: { entity: { domain: 'sensor' } } },
     { name: 'invert_battery', selector: { boolean: {} } },
     { name: 'name', selector: { text: {} } },
   ];
-  static labels = { ...FLOW_LABELS, name: 'Titel (Standard: Akku)' };
+  static labels = { ...FLOW_LABELS, name: 'Titel (Standard: Akku)', capacity_entity: 'Akku-Größe aus Sensor (statt Zahl)', battery_charge_energy: 'Heute geladen (kWh, optional)', battery_discharge_energy: 'Heute entladen (kWh, optional)' };
   static defaults = {};
 }
 
